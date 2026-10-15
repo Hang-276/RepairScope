@@ -1,0 +1,24 @@
+# Paths resolve from the repository root. scripts/prepare_models.py writes pinned
+# runs/configs/appworld.json for actual server use.
+root = "vendor/appworld"
+output_dir = "runs"
+seed = 100
+
+[actor]
+base_url = "http://127.0.0.1:8000/v1"
+model = "Qwen/Qwen3-8B-AWQ"
+tokenizer = "Qwen/Qwen3-8B-AWQ"
+api_key_env = "B2_ACTOR_API_KEY"
+max_tokens = 3000
+context_length = 8192
+temperature = 0.0
+
+[policy]
+checkpoint_interval = 5
+goal_tokens = 512
+candidate_tokens = 2400
+candidate_code_tokens = 600
+
+[budget]
+max_steps = 50
+max_output_tokens = 100000

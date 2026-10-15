@@ -1,0 +1,10 @@
+RepairScope
+Predicting Goal-Level Repair Effects for Scoped Agent Recovery
+
+This project extends the official AppWorld SimplifiedReActCodeAgent.
+AppWorld is maintained by the AppWorld authors and distributed under Apache-2.0:
+https://github.com/StonyBrookNLP/appworld
+The upstream repository is included as a pinned Git submodule, not rebranded.
+
+Task data, decrypted protected source, model weights and derived task labels
+are not included. Their original terms continue to apply.
