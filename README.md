@@ -1,87 +1,86 @@
-# RepairScope
+# RepairScope-Evo
 
-**Predicting Goal-Level Repair Effects for Scoped Agent Recovery**
+**Self-Improving Repair Knowledge through Joint Counterfactual Execution**
 
-给定当前可观察任务状态和候选修复，预测它会恢复哪些目标、破坏哪些目标，并选择合理的恢复范围。当前实验载体是 **AppWorld API/code agents**；这是工具代理研究，不宣称已经验证 GUI 或具身迁移。
+冻结模型参数，从真实训练任务的执行经验中发现、验证和修订条件化修复知识：什么条件下需要补偿操作，何时补偿多余，以及它是否破坏已经完成的目标。
 
-本仓库包含可运行的采集、训练、选择和评测入口。**尚无真实 AppWorld 主实验结果，也未在 4090 实测峰值显存。** 本地合成检查只证明实现链路，不能证明研究假设、创新性或 CCF-A 录用前景。
+本仓库按 [Phased Proposal v1.0](docs/PROPOSAL_v1.0.md) 重建，当前代码范围为 **P0 资产与协议冻结、P1 有预算的可行性验证**。旧四态预测、4B 训练和旧 GATE 2 工作流已经废弃；旧版本仅保留在 Git 历史中。P2 持续学习及后续正式实验，须在真实 P1 证据满足条件后另行推进。
 
-## 基线与方法
+> 当前没有连接服务器、运行新的 AppWorld 实验或证明方法有效。合成夹具、格式检查、资产 receipt 与真实研究结果分别记录。详见 [实现状态](docs/IMPLEMENTATION_STATUS.md)。
 
-直接继承官方 `SimplifiedReActCodeAgent`，固定 AppWorld 源码到 [`42b5bcf`](https://github.com/StonyBrookNLP/appworld/tree/42b5bcf3cd334fee33f0c37c02070a9f5807add5)，通过 Git submodule 引入。保留官方提示词、Python 代码提取和 ReAct 对话更新；所有方法统一使用有预算记录的本地 HTTP 传输、8192 上下文限制和 50 个执行代码块上限。这是明确记录的适配版基线，不能直接与上游论文成绩作公平性等同。
+## 获取与安装
 
-1. 冻结 `Qwen3-8B-AWQ` actor，从原始任务提取有逐字证据的目标。
-2. 仅当至少两个目标且均为最终持久状态目标时启用干预；其他任务继续原始 actor，仍计入原生评测分母。
-3. 在可观察执行错误、每 5 个已执行块、宣告完成前检查。保留原始动作，另生成 local / composite / broad 三个当前状态修复候选。
-4. 离线 train/dev 通过独立进程完整重放前缀，获得每个目标的 `00 / 01 / 10 / 11` 标签；无法可靠映射的目标为 unknown。
-5. `Qwen3-4B` NF4 + LoRA 编码完整目标与候选，用共享四分类头预测每个目标的前后状态。一个候选一次 forward 同时输出全部目标。
-6. 固定选择效用：`mean P(01) - 2 mean P(10) - .05 normalized_cost`。只执行最终候选，把实际代码写入后续上下文。
+GitHub 仓库保持公开，服务器可以直接克隆：
 
-不执行未选中的候选、不在线访问 evaluator、不免费回滚。不引入 RL、图学习或额外排序损失。低成本合成后端会强制标记 `fixture_backend=true`，并被真实实验入口拒绝。
-
-主比较为 `baseline / direct / scalar / effect`；`rule` 是可选的零样本四状态比较。Scalar 与 effect 使用同编码器、同输入、同完整标签样本和同候选成本归一化。未知标签的 partial effect 训练只作另行声明的诊断。
-
-## 本地代码检查
-
-Python 3.11 或 3.12：
-
-```bash
-python -m venv .venv
-.venv/bin/python -m pip install -e '.[test,ml]'
-.venv/bin/python -m pytest -q
-.venv/bin/repairscope fixture-smoke --output-dir runs/my_fixture
-```
-
-这些命令不下载 AppWorld 数据或大模型。`fixture-smoke` 真实执行 CPU 反向传播、保存、加载与预测，但数据和小模型均为合成夹具。
-
-## 服务器执行
-
-```bash
-git clone --recurse-submodules https://github.com/Hang-276/RepairScope.git
+```sh
+git clone https://github.com/Hang-276/RepairScope.git
 cd RepairScope
-PYTHON_BIN=python3.11 bash scripts/bootstrap_server.sh
-.venv/bin/python scripts/prepare_models.py --download
-bash scripts/serve_actor.sh
+python3.11 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e '.[test]'
 ```
 
-Actor 服务前台运行；在另一个终端按阶段执行：
+`repairscope` 包使用 Python 3.11 及以上版本，运行时只依赖标准库。它不会自动下载任务或模型、安装 AppWorld、启动或重配模型服务。真实执行使用服务器已经部署的 AppWorld 环境和冻结 Qwen3-8B-AWQ 服务；轻量编排环境不能代替既有 AppWorld 执行环境。
 
-```bash
-bash scripts/run_stage.sh pilot
-bash scripts/run_stage.sh capture
-bash scripts/run_stage.sh labels
-# 按 docs/LABEL_AUDIT.md 审计真实映射并记录；不能虚构审计通过。
-.venv/bin/python scripts/check_collection.py
-# 训练时释放本项目 actor 的显存；只停止自己启动的服务。
-bash scripts/run_stage.sh folds
-bash scripts/run_stage.sh train
-# 重新启动 actor，测量与4B分类器共存峰值，再跑dev。
-bash scripts/run_stage.sh dev
-.venv/bin/python scripts/freeze_protocol.py create
-bash scripts/run_stage.sh test
+`vendor/appworld` 继续固定到 `42b5bcf3cd334fee33f0c37c02070a9f5807add5`。需要查看该版本源码时可运行 `git submodule update --init vendor/appworld`；离线测试不需要拉取子模块。
+
+## 本地检查
+
+```sh
+python -m pytest
+repairscope fixture-smoke --output-dir runs/fixture
+python -m build
 ```
 
-每个阶段保留独立结果，已有实验目录会拒绝覆盖。`test` 需要冻结代码、配置、标签和全部最终检查点；只输出完整 split 的原生 aggregate TGC/SGC。若初步数据缺少真实损害、恢复或有差异的候选，应报告问题尚未得到支持，不能靠合成故障填充主结果。
+`fixture-smoke` 使用明确标记为 `synthetic_fixture` 的小型状态环境，检查编排和证据路径。它不使用 AppWorld 数据、不调用真实模型，也不能成为 P1 的成功见证。
 
-4090 的建议是采集/评测用 8B-AWQ actor，训练时释放 actor 后训练 4B NF4 predictor；共存推理从 actor `gpu-memory-utilization=.35` 起试。此数值是待服务器实测的初始设置。vLLM 使用独立环境，避免覆盖训练环境的 Torch。
+## 服务器阶段入口
 
-## 文档
+先按 [服务器操作说明](docs/SERVER_RUNBOOK.md) 收集现有资产，准备资产说明文件；保留服务器未提交的 C2/C5 等修订。资产路径由服务器操作者提供，代码不猜测服务器目录，也不自动下载缺失资产。
 
-- [固定实现与计划差异](docs/IMPLEMENTATION_NOTES.md)：最终可执行协议优先于早期提案。
-- [方法与实验设计](docs/METHOD_DESIGN.md)
-- [研究方向与4090可行性调研](docs/RESEARCH_REVIEW.md)
-- [实验协议](docs/EXPERIMENT_PROTOCOL.md)
-- [标签语义审计](docs/LABEL_AUDIT.md)
-- [服务器运行手册](docs/SERVER_RUNBOOK.md)
-- [服务器 Agent 提示词](docs/SERVER_AGENT_PROMPT.md)
-- [本地验证记录](docs/LOCAL_VALIDATION.md)
+```sh
+repairscope p0 --assets /path/to/ASSETS.json --output-dir runs/evo_v1
+repairscope inspect --p0-dir runs/evo_v1
+repairscope p1 --p0-dir runs/evo_v1 --events /path/to/EVENTS.json \
+  --output-dir runs/p1 --base-url http://127.0.0.1:8000/v1
+```
 
-源码为 Apache-2.0。AppWorld 受保护数据、解包源码、任务轨迹、模型权重、凭据和派生标签不提交到本仓库。通过官方工具重建数据与环境。
+也可以通过 `python scripts/run_evo_stage.py` 调用相同命令。缺少可核验的服务器资产、冻结目标或合格的重放证据时，P0 应报告 `blocked`；没有真实输入不能将其判为通过。
 
-## 相关依据与限制
+P0 固定资产身份、数据边界、目标、任务次序和预算。P1 锁定既有原任务成绩，再在隔离训练副本中核验 1–4 个实际已有候选；系统自动提议“操作变化 × 条件变化”的四格实验，依据执行证据修订知识，并检查旧固定程序和新知识在旧情形中重新生成的行为。留出行为评估单独记账，留出状态不能参与对应规则的归纳或回归门控。
 
-AppWorld 原生 SGC 是 **Scenario Goal Completion**：同一场景所有实例均完成；它不是子目标完成率。版本 0.2.0 源码对应 train/dev/test_normal/test_challenge 为 90/57/168/417，实际下载后必须通过 manifest 验证。
+服务器操作者需要按 [输入契约](docs/SERVER_RUNBOOK.md) 导出完整既有 train 轨迹、候选、目标和 receipts。当前包提供离线分支及知识验证编排，尚不驱动原生在线 Actor 或 capture 流程，不会补造缺失资产。`configs/assets.example.json` 提供占位路径；`configs/events.example.json` 是故意留空、不能通过真实运行校验的输入外壳。冻结预算示例为 `configs/evo_v1.yaml`，使用 JSON 语法。
 
-[AppWorld 官方仓库](https://github.com/StonyBrookNLP/appworld)提供任务环境与评测。[Qwen3-8B-AWQ 模型卡](https://huggingface.co/Qwen/Qwen3-8B-AWQ)说明 AWQ 和 non-thinking 切换；本实现显式发送 `enable_thinking=false`。[vLLM 0.11.0 文档](https://docs.vllm.ai/en/v0.11.0/models/supported_models.html)是所固定推理版本的兼容性依据，实际服务器安装仍需验收。
+## 研究边界
 
-[Three Roles, One Model](https://arxiv.org/abs/2604.11465)研究小模型在单张 24GB GPU 上的推理角色编排，是硬件与代理脚手架的相关工作；不能将其结果转作 RepairScope 的实测证据。本研究的核心待检验点仍是：目标后果监督是否比同容量 scalar 和直接选择带来稳定收益。
+- 学习来源只允许 train；dev 仅用于后续冻结评估，test 在正式阶段前封存。固定模型参数，不训练 4B、LoRA、RL 或 `K_probe`。
+- 首批计划 3–5 个 train 任务、10–15 个状态；每状态最多四个初始候选，每事件最多 12 个新分支，首批最多 180 个分支。只允许一次预设扩展，最多再增加 15 个状态和 180 个分支，不能更换种子反复采到通过。
+- 每任务最多两次实际知识学习事件；额外自然状态继续保留全部候选见证尝试，不再启动联合学习。每学习事件最多六次模型调用、合计 8000 输出 token；留出行为评估最多三个案例、每案例三次新旧配对，共最多 18 次行为运行，单列成本。
+- 条件干预必须通过合法 API；只有经审计、在两种状态中语义不变的 checker 才能支持机制结论。无法判断记 `unknown`，不能修改 evaluator 使样本通过。
+- 逐任务人工任务、规则和干预编辑必须为零。原任务成绩不可被影子分支覆盖，同一任务中知识固定，知识更新只影响后续任务。
+- 公共仓库只发布通用代码、配置和可公开文档。任务内容、轨迹、目标锁文件、数据库、模型权重、派生知识及完整运行证据不应提交。
+
+当前记录完整分支身份与 `cache_key`，尚未实现重放缓存；所有实际分支均消耗预算，不存在免费缓存命中。
+
+所有运行及实验过程日志使用清晰英文，控制台与运行目录的 `run.log` 同步即时输出；原始 JSON/JSONL 证据独立保存。实验只在服务器执行，本地用于代码实现和离线软件检查。日志格式及内容边界见 [English run logs](docs/LOGGING.md)。
+
+完整预算、P1 A/B/C 验收和停止条件见 [协议](docs/PROTOCOL.md)。操作入口见 [服务器说明](docs/SERVER_RUNBOOK.md)，旧项目处理见 [迁移记录](docs/MIGRATION.md)。
+
+## 目录
+
+```text
+src/repairscope/             P0/P1 实现与显式合成夹具
+configs/                    冻结协议配置
+scripts/run_evo_stage.py    阶段入口
+tests/                      离线单元与集成检查
+docs/PROPOSAL_v1.0.md       原始研究提案
+docs/PROTOCOL.md            当前范围与验收条件
+docs/SERVER_RUNBOOK.md      服务器资产准备和运行步骤
+docs/IMPLEMENTATION_STATUS.md 实现与真实验证的边界
+docs/MIGRATION.md           旧方案替换与服务保护记录
+vendor/appworld/            固定的上游子模块
+```
+
+## 许可
+
+本项目采用 Apache-2.0，见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。AppWorld 上游源码及受保护资源继续遵守其原有许可和发布限制。公开仓库不包含受保护任务数据或模型权重。

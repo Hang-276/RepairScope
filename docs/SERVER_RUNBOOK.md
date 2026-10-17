@@ -1,223 +1,158 @@
-# 服务器执行手册
+# 服务器 P0/P1 操作说明
 
-本仓库在本地验证的是依赖隔离、数据边界、假环境分叉、候选选择和 CPU
-fixture 的软件流程。**真实 AppWorld 运行、4090 峰值显存、真实标签质量和方法
-收益均待服务器验证。** `fixture-smoke` 成功不能写成主实验已成功。
+这份说明供已经部署 AppWorld 与 Qwen3-8B-AWQ 的服务器使用。本次仓库重建没有连接该服务器，也没有核验它的当前运行状态。不要根据新仓库的默认配置重新安装环境或重启服务。
 
-以下命令均从本仓库根目录执行。完整研究约束见
-[EXPERIMENT_PROTOCOL.md](EXPERIMENT_PROTOCOL.md)，标签审计见
-[LABEL_AUDIT.md](LABEL_AUDIT.md)。
+实验仅在服务器执行。所有运行及实验过程状态日志使用清晰英文，控制台和运行目录的 UTF-8 `run.log` 同步即时输出；JSON/JSONL 证据单独保存，不能把完整任务或模型内容写入状态日志。格式见 [English run logs](LOGGING.md)。
 
-## 1. 建立独立工作区
+## 1. 保存服务器现状
 
-将仓库 clone 到一个新的、明确属于本次实验的路径。不要覆盖或迁移原 B2
-目录，不要复用原 B2 的虚拟环境，不要修改系统 Python、代理、路由、SSH 配置、
-其他服务或他人的运行进程。模型缓存可以在权限允许且不改变原配置时只读复用。
+在原服务器工作目录先检查 Git HEAD、分支、未提交改动、模型锁文件、环境 manifest 与 C1–C7 receipts。特别保留原报告中尚未 push 的 `rs/protocol-v1` 和 F1 目标冻结工作。用户已废弃旧研究路线，但这不意味着服务器上未提交的服务修订可以直接覆盖。
 
-```bash
-bash scripts/bootstrap_server.sh
-.venv/bin/python scripts/prepare_models.py --download
+公共远端为 `https://github.com/Hang-276/RepairScope.git`。建议将新入口克隆到独立目录，读取现有部署资产；不要在含服务器改动的目录中强制 reset。旧代码可以从 Git 历史查阅，新工作树以新方案为准。
+
+安装轻量编排包时使用 Python 3.11 以上版本。AppWorld 执行应使用现有可工作的服务器解释器与环境。不要为运行标准库编排器把旧环境依赖升级一遍。
+
+```sh
+git clone https://github.com/Hang-276/RepairScope.git RepairScope-Evo
+cd RepairScope-Evo
+python -m pip install -e .
+repairscope --help
 ```
 
-该脚本准备独立 `.venv`、独立上游代码目录和 AppWorld 数据。Actor 服务使用
-另一套 `.venv-actor`，避免 vLLM 的依赖要求改动训练环境。若已有目录或资源与
-脚本预期冲突，应保存当前信息并换一个新的本次实验路径，不要清理旧目录解决。
+## 2. 准备真实资产
 
-核验以下内容并保留记录：
+资产说明和事件清单由服务器操作者依据实际文件编写，不由仓库自动下载或猜测目录。下面给出当前输入契约。示意中的占位值必须由真实文件、完整 hash 和既有 receipt 替换；它们不是可以直接通过验收的测试数据。
 
-- 上游 AppWorld commit：`42b5bcf3cd334fee33f0c37c02070a9f5807add5`。
-- 数据版本：`0.2.0`。划分大小为 train90、dev57、test_normal168、
-  test_challenge417，四个划分的 task/scenario 不交叉。
-- `configs/appworld.toml` 是模板；模型准备脚本生成 `runs/configs/appworld.json`。检查后者的 `root`、`output_dir` 是本次服务器的真实绝对路径。
-- Actor 和 predictor 的模型标识解析到实际下载的 snapshot/revision。保存实际
-  revision、配置、包版本、GPU 型号和可用显存，不以可变化的 `main` 代替记录。
-- 不在仓库、日志和提示词中写入密钥。需要密钥时通过指定环境变量传入。
+仓库提供 `configs/assets.example.json` 的占位路径模板、`configs/events.example.json` 的空事件外壳，以及使用 JSON 语法的 `configs/evo_v1.yaml`。空事件外壳会被故意阻止运行，不能作为真实数据。当前包尚不驱动原生在线 Actor/capture，必须先从既有服务器产物导出完整 train 轨迹、候选和计分结果；缺失资产需要报告缺失，不能在导出时合成补齐。
 
-```bash
-.venv/bin/python -m b2_appworld doctor --config runs/configs/appworld.json --output runs/doctor.json
-.venv/bin/python -m b2_appworld manifest --config runs/configs/appworld.json --output runs/dataset_manifest.json
-.venv/bin/python -m pytest -q
-.venv/bin/python -m b2_appworld fixture-smoke --output-dir runs/local_contract_fixture
+P0 至少需要可核验的以下信息：
+
+- 服务器仓库实际完整 HEAD、dirty 状态与服务配置/验收证据；已有有效配置不得被旧 main 的配方覆盖。
+- AppWorld 版本与固定源码提交、模型 ID 与完整 revision、实际服务上下文和锁文件。`32000` 是待核验的上下文要求；短 hash 不够。
+- 真实 split manifest、train 轨迹/前缀索引与来源身份。dev/test 仅有必要的 manifest 元数据，不能把其任务内容交给学习器。
+- 既有 D1 抽取文件、目标映射和文件 hash。使用既有抽取结果冻结，不逐任务人工补目标。
+- 至少一个可信既有固定前缀重放 receipt，能够关联任务、前缀、环境、程序和目标映射，并覆盖 Python 上下文及异常前部分写入。
+- 冻结任务顺序、状态选择、预算与唯一扩展计划；所有输入应可追踪实际来源，不能使用 fixture 代替。
+
+绝对路径应指向服务器本地已有文件。不要把受保护数据库、任务文本、目标、轨迹、答案、密钥或模型内容提交 GitHub。运行证据保存在被忽略的 `runs/` 或仓库外部私有目录。
+
+### P0 资产说明格式
+
+`ASSETS.json` 的文件路径相对于该说明文件所在目录解析；也可以提供绝对路径。每个 `sha256` 是对应文件原始字节的 SHA256，而不是 JSON 对象 hash。
+
+```json
+{
+  "repository": "/absolute/path/to/existing/server/repository",
+  "model_lock": {"path": "model.lock.json", "sha256": "<file_sha256>"},
+  "environment_manifest": {"path": "environment.json", "sha256": "<file_sha256>"},
+  "train_manifest": {"path": "train_manifest.json", "sha256": "<file_sha256>"},
+  "goals": {"path": "D1_goals.json", "sha256": "<file_sha256>"},
+  "replay_receipt": {"path": "prefix_replay.json", "sha256": "<file_sha256>"},
+  "service_receipt": {"path": "service_receipt.json", "sha256": "<file_sha256>"}
+}
 ```
 
-`doctor.live_ready` 只报告依赖/数据/GPU 的静态必要条件；它不测试HTTP服务、真实任务、NF4训练或显存共存，不能视为服务器验收通过。
-不要为了修复测试错误，改为未固定的上游最新版。
+所引用文件均为 JSON，至少满足以下字段：
 
-## 2. 启动冻结 Actor，测量单卡共存
+| 文件 | 当前校验字段 |
+|---|---|
+| `model_lock` | `name = "Qwen/Qwen3-8B-AWQ"`，`revision` 为真实 40 位十六进制完整提交 |
+| `environment_manifest` | `appworld_version = "0.2.0"`，`appworld_commit` 为固定完整 SHA |
+| `train_manifest` | 非空 `tasks` 数组；每项含 `task_id`、`scenario_id`、`split = "train"`、来源 `source`、完整 `task_sha256` 和 `trajectory_sha256` |
+| `goals` | `source = "existing_D1"`、`extractor_frozen = true`、`tasks` 为以 task ID 为键的对象，且与 train allowlist 完全一致 |
+| 单任务目标记录 | `split = "train"`、原始 `instruction` 和 `goals` 数组；每项目标含唯一 `id`、来自原指令原文的 `evidence_span`、`kind`；至少两个 `kind` 为 `state_write` 或 `preservation_constraint` |
+| `service_receipt` | `accepted = true`、`context_length = 32000`、`c2_truncation_verified = true`、`c5_verified = true`、`model_revision` 与模型完整 revision 一致 |
+| `replay_receipt` | `ok = true`、`evidence_origin = "AppWorld"`、`prefix_verified = true`、`split = "train"`、自然事件 `source`；`task_id` 属于 allowlist；`identity.task_sha256` 与 train manifest 一致，`identity.goals_sha256` 为本任务冻结目标记录的对象 hash，`identity.environment_sha256` 为环境 JSON 对象 hash |
 
-在一个独立终端启动：
+布尔字段只能是 JSON 布尔值；不能因为程序要求 `true` 就填写未发生的验收。既有文件字段不一致时，可以通过通用转换程序生成带来源信息的输入文件，但不能虚构验收、重新手写任务知识或改写历史结果。P0 只核验声明与输入身份，不替代对原始 receipts 的真实性审查。
 
-```bash
-bash scripts/serve_actor.sh
+## 3. 运行并检查 P0
+
+```sh
+repairscope p0 --assets /path/to/ASSETS.json --output-dir runs/evo_v1
+repairscope inspect --p0-dir runs/evo_v1
 ```
 
-主配置使用冻结 `Qwen/Qwen3-8B-AWQ`、关闭 thinking、temperature0、
-8192 context、最多3000输出 token、并发1。vLLM 初始
-`gpu_memory_utilization=0.35`，约对应24GB卡上的8GB预算量级。
-4B NF4 predictor 另预留约4GB量级作为初始估算。**这两个估算不是显存承诺**：
-量化权重、KV cache、上下文、CUDA graph、激活与碎片都会改变峰值。
+检查 `P0_report.md` 与冻结文件，确认版本、hash、train 边界、完整模型 revision、目标和重放证据。产物包括 `assets.json`、`protocol.yaml`、`protocol_migration.md`、`data_manifest.json`、`goals.lock.json`；`protocol.yaml` 是 JSON 子集 YAML。本仓库完整迁移说明保存在 `docs/MIGRATION.md`。
 
-先用真实的最长观察历史和完整四候选进行短试跑，同时记录整卡占用与进程占用。
-训练日志的 PyTorch peak 只反映当前训练进程，不能代表 vLLM 与 predictor
-并存时的整卡峰值。保留 OOM、峰值和调整记录。
+P0 因资产缺失或不一致而 `blocked` 是有效结果。补齐真实资产后重新冻结，保留旧输出目录，不用修改报告状态绕过检查。真实 P0 不接受合成资产作为科学证据。P0 通过也不表示已重新验证模型服务或方法效果。
 
-若共存不足，先检查服务是否由本次实验启动、是否意外并发，再统一降低本次
-Actor 的显存预算或统一缩短上下文；任何调整都应用到全部比较方法并重跑相关
-基线。不要只让 B2 使用更短历史，或为了腾显存停止未知进程。当前代码不提供
-Actor/predictor 自动卸载与换入，不能把这种策略当作已实现路径。
+## 4. 准备 P1 事件与隔离执行
 
-## 3. 接口 pilot：先3个任务
+事件清单只能引用冻结 train 清单中的原生任务。冻结 scenario 轮转次序、3–5 个任务及计划 10–15 个初始状态，每阶段最多 15 个状态，记录自然事件来源。每个状态接收 1–4 个实际已有初始候选，不能只导出成功候选，也不能为凑四个而补造缺失候选。每任务最多两次实际知识学习事件，额外状态仍核验并存档全部候选见证，不再启动联合学习。
 
-```bash
-bash scripts/run_stage.sh pilot
+原任务必须先完成计分并保存原始结果；任务内知识固定。影子环境使用隔离副本，实际修复从当前状态出发。重放不能丢失 Python 变量或异常前的部分写入，影子分支不能写回原任务数据库。
+
+对每个目标/checker 映射做通用审计，确认合法条件干预前后仍判断同一语义。审计可以标记无效和 unknown，不能手写正确规则、参考修复或逐任务干预帮助方法过关。记录 `human_task_edits`、`human_rule_edits`、`human_intervention_edits` 与审计时间；主机制证据前三项必须为零。
+
+留出行为状态单独声明，在对应修订提交前不能用于规则生成、实验选择或旧证据门控。条件或程序提议由冻结服务自动产生；具体事件的标准答案不得由操作者填写。
+
+### P1 事件格式
+
+`EVENTS.json` 顶层只接受 `schema_version`、`events`、`transfer_cases`、`allow_extension`。`allow_extension` 必须在首次执行前声明；`events` 中 initial 在前，extension 在后，任务顺序服从 P0 冻结的 scenario 轮转次序。
+
+| 事件字段 | 内容 |
+|---|---|
+| `event_id`、`phase` | 唯一事件 ID；`phase` 为 `initial` 或预设的 `extension` |
+| `request` | 下表所述真实 train 分支请求 |
+| `public_context` | 只接受 `instruction`、`history`、`api_docs`、`observations`；原指令须与 D1 完全一致，observations 为可见键值对象 |
+| `candidates` | 既有初始候选数组，每项 `id` 与 `code`；最多四个，保留失败候选，不补采直到成功 |
+| `original_score` | `scored = true`、一致的 `task_id`、`split = "train"`、原任务 `result` 和其 JSON 对象 hash `result_sha256` |
+| `forbidden_literals` | 仅供审计的 task ID、实体、答案字面值排除表，至少包含本事件 task ID；不得注入可部署规则 |
+| 人工记录 | 三个 `human_*_edits` 必须显式为整数 0，可附 `audit_minutes` |
+
+分支 `request` 字段：
+
+| 字段 | 内容 |
+|---|---|
+| `task_id`、`scenario_id`、`split`、`source` | 冻结清单中的身份，split 为 train，起点为自然事件 |
+| `root` | 既有 AppWorld 数据根目录，须含 `data/datasets/train.txt` |
+| `steps` | 精确前缀数组，每项含 `code` 和实际 `output`；失败输出及部分写入不得删去 |
+| `program` | 合法 Python 修复代码字段，执行时由固定候选或模型提议替换 |
+| `g_fix`、`g_keep` | 预先声明的非空、互不重叠目标 ID 数组，不能在结果后修改 |
+| `goal_mapping` | 覆盖全部冻结目标 ID；每项目标含 `complete` 布尔值和唯一的 `requirements` 字符串数组 |
+| `identity` | 五个完整 SHA256，计算规则见下文 |
+| `checker_spec`、`checker_audit_sha256` | 经通用审计的 checker，格式 `module:function`，及真实审计文件 hash；条件干预世界缺少有效 checker 时结果为 unknown |
+| `intervention` | 原自然事件和留出请求必须为 `null` 或省略；由系统在影子探测时提出 |
+
+真实 P1 不允许 `factory_spec`。该接口只供显式合成夹具使用。`checker_spec` 所指函数应可由现有解释器导入，签名为 `(world, mapping)`，返回恰好包含全部 goal ID、值为 `true/false/null` 的对象。名称或 hash 不会自动证明 checker 语义正确，审计须实际完成。
+
+对象 hash 使用 `repairscope.protocol.digest`：键排序、UTF-8、紧凑 JSON、保留 Unicode、禁止 NaN。`identity` 五项须精确对应：`protocol_sha256 = digest(P0 protocol)`、`goals_sha256 = digest(本任务冻结目标记录)`、`environment_sha256 = P0 assets.environment_sha256`、`task_sha256 = train_manifest 中本任务 hash`、`mapping_sha256 = digest(goal_mapping)`。原始文件 hash 使用 `repairscope.protocol.file_digest`，二者不能混用。
+
+`transfer_cases` 每项含唯一 `case_id`、`request`、`public_context`、`repeats`（1–3）及三个为 0 的人工编辑字段。当前实现采用较严格的 task 级留出：transfer task 不得出现在任何学习事件中；最多三个案例。生成和更新结束后才执行这些状态，不把结果反馈更新器。
+
+## 5. 运行 P1
+
+确认 P0 通过并且现有 HTTP 服务身份与锁文件一致，再使用同一个服务顺序执行提议、归纳和修订：
+
+```sh
+repairscope p1 --p0-dir runs/evo_v1 --events /path/to/EVENTS.json \
+  --output-dir runs/p1 --base-url http://127.0.0.1:8000/v1
 ```
 
-此阶段的少量 train/dev 任务用于确认服务通信、上游 agent、任务执行、代码
-保存、checkpoint 和环境关闭。3个 task 可能仅来自1个 scenario，因此它不是
-研究有效性实验，也不足以验证泛化。
+服务地址示例仅指向服务器本地现有端点。代码不启动或重新配置服务。实际模型完整 revision、上下文与 C2/C5 行为必须由服务器的锁和 receipts 对应确认，不能仅凭 `/models` 返回的名称认定一致。
 
-对应 CLI 示例：
+每事件最多 12 个新分支、六次学习模型调用、8000 输出 token；首批总分支最多 180。实际初始候选、四格探测、拟议规则重新生成行为验证以及旧证据回归均计入事件预算。旧证据回归同时执行旧固定程序和新知识在旧上下文中重新生成的程序，全部成本累计。预算不足记录 unresolved，不自动增加候选或分支。
 
-```bash
-.venv/bin/python -m b2_appworld run --config runs/configs/appworld.json --split train --method baseline --experiment pilot_baseline_train --limit 3
-.venv/bin/python -m b2_appworld run --config runs/configs/appworld.json --split train --method capture --experiment pilot_capture_train --limit 3
+当前仅记录完整分支身份和 `cache_key`，没有重放缓存，缓存命中数为 0；每次实际分支执行都计费。不要将重复运行当作免费缓存。
+
+最多三个留出案例、每案例三次新旧知识配对，最多 18 次行为评估，另计成本。只允许使用一次预设覆盖扩展：再增加最多 15 个状态、180 个分支；不能重新开目录、换种子或循环同一清单绕过阶段总账。
+
+留出改善还须核验：真实 AppWorld 来源、新旧生成程序有变化、变更规则实际注入新提示、知识提示 hash 确实变化。全部配对结果存档，不能只报告有利的一次输出。
+
+## 6. 审查产物并停止
+
+审查以下产物是否覆盖所有输入、失败、unknown、拒绝与成本：
+
+```text
+P1_report.md
+witnesses.jsonl
+joint_probes.jsonl
+knowledge_versions.jsonl
+transfer_cases.jsonl
+coverage_and_cost.json
 ```
 
-每个 experiment 名称必须全新；代码会拒绝覆盖已有结果。检查
-`runs/EXPERIMENT/run.json`、`receipt.json` 和
-`tasks/TASK/trajectory.json` 的实际存在、结束状态与执行块。检查准备宣告完成时
-不会被反复无效果修复阻塞；若存在该问题，先修复统一策略再继续。
+按 [协议](PROTOCOL.md) 判断 A/B/C：至少三个真实成功修复跨两个 scenario、两类条件机制、一次有旧证据检查及独立迁移行为证据的自动实质修订。条件不满足则给出停止原因；满足后提交继续建议，由后续研究决定是否进入 P2。本入口不自动启动 P2、训练、全量 test、第二环境或任务生成。
 
-`capture` 会产生 goal/candidate 的辅助推理调用，但执行原 Actor 提议。其用途
-是采集候选后果，不作为原生 ReAct 性能基线，也不与其他方法混算成本。
-
-## 4. 采集真实 train/dev 轨迹与分叉标签
-
-接口通过后先做扩展的 train/dev 小样本，按下面的同一流程审计标签。确认标签
-可用再执行完整 capture；不要先投入全部训练时间。
-
-```bash
-bash scripts/run_stage.sh capture
-bash scripts/run_stage.sh labels
-```
-
-主阶段使用 train 全90个任务、dev 全57个任务。也可逐阶段执行明确的 CLI：
-
-```bash
-.venv/bin/python -m b2_appworld run --config runs/configs/appworld.json --split train --method capture --experiment capture_train
-.venv/bin/python -m b2_appworld run --config runs/configs/appworld.json --split dev --method capture --experiment capture_dev
-.venv/bin/python -m b2_appworld map-goals --config runs/configs/appworld.json --trajectories runs/capture_train --output runs/labels/train.mapping.json
-.venv/bin/python -m b2_appworld map-goals --config runs/configs/appworld.json --trajectories runs/capture_dev --output runs/labels/dev.mapping.json
-```
-
-`map-goals` 输出是仅供 labeler 使用的私有映射。按标签审计文档审查后，再采标签：
-
-```bash
-.venv/bin/python -m b2_appworld collect --config runs/configs/appworld.json --trajectories runs/capture_train --mapping runs/labels/train.mapping.json --output runs/labels/train.jsonl
-.venv/bin/python -m b2_appworld collect --config runs/configs/appworld.json --trajectories runs/capture_dev --mapping runs/labels/dev.mapping.json --output runs/labels/dev.jsonl
-.venv/bin/python -m b2_appworld quality --data runs/labels/train.jsonl --output runs/labels/train_quality.json
-.venv/bin/python -m b2_appworld quality --data runs/labels/dev.jsonl --output runs/labels/dev_quality.json
-```
-
-`labels` 便利阶段会先生成自动映射，不能代替人的语义审计；若审计修订了映射，
-必须重新执行相应 `collect` 并保留旧版本，不能仅改报告。
-
-采集器为每个 reference/candidate 新建进程和环境，完整重放前缀，比较相同的
-数据库变更与观察，不在在线任务中免费分叉或回滚。无可干预 checkpoint 的任务
-不会采到训练标签，但继续属于所有完整任务评测的分母。
-
-检查 `train.jsonl.receipt.json` 与 `train.jsonl.states.jsonl`。若
-`status=no_accepted_examples`、已接受样本为0、类别仅剩00/11，或没有真实候选
-差异，应停止训练并诊断；不要用 fixture、伪造01/10或测试集补足。
-
-## 5. 冻结标签和协议，释放自己启动的 Actor
-
-按实验协议完成至少30个 goal 的人工审计及数据门控。保存输入 JSONL 和映射
-哈希、scenario 分组、训练配置、目标/候选提示词、效用权重与成本统计方案。
-
-在启动 Actor 的终端使用 Ctrl-C 结束**本次启动的服务**。若采用后台启动，先
-核对自己保存的 PID、进程命令和工作目录，再停止该 PID。禁止使用不加核验的
-`pkill`、停止占端口的未知进程或终止整卡上所有 Python 进程。
-
-训练阶段不需要 Actor 服务。完成一类/一种子后退出进程，再训练另一类/种子，
-避免两个4B训练器并发占卡。
-
-## 6. 训练后果模型与同容量标量对照
-
-```bash
-bash scripts/run_stage.sh folds
-bash scripts/run_stage.sh train
-```
-
-对应单次训练 CLI：
-
-```bash
-.venv/bin/python -m b2_appworld train --config runs/configs/train_effect.json --kind effect --seed 100 --output-dir runs/checkpoints/effect_s100
-.venv/bin/python -m b2_appworld train --config runs/configs/train_scalar.json --kind scalar --seed 100 --output-dir runs/checkpoints/scalar_s100
-```
-
-主配方是 Qwen3-4B、NF4、LoRA rank16/alpha32/dropout0.05，length4096、
-batch1、累积16、最多3 epochs。以配置文件为真实执行来源，保存 resolved
-model revision。主比较让两类模型使用同一 fully-labeled cohort；effect 的
-部分标签训练只能作为单独消融，不能暗中获得更多监督。
-
-先完成一个短真实训练并核查有限 loss、optimizer step、best checkpoint
-重载、dev/scenario holdout 预测和峰值显存，再执行三个种子100/101/102。
-不要将 tiny backend 的成功当成4B NF4已经跑通。
-
-```bash
-.venv/bin/python -m b2_appworld evaluate-predictor --checkpoint runs/checkpoints/effect_s100/best --data runs/labels/dev.jsonl --output runs/checkpoints/effect_s100/dev_diagnostics.json
-.venv/bin/python -m b2_appworld evaluate-predictor --checkpoint runs/checkpoints/scalar_s100/best --data runs/labels/dev.jsonl --output runs/checkpoints/scalar_s100/dev_diagnostics.json
-```
-
-官方 dev 可用于 checkpoint/global protocol 选择。train-side scenario folds
-是另一个机制检验：同一 scenario 的全部任务、状态和候选必须一起划入同一侧。
-不要把训练侧 fold 的标签混入官方 dev 或 test。
-
-## 7. Dev 闭环，再冻结完整测试
-
-重新启动自己的 Actor 服务；先测 learned predictor 与 Actor 并存的整卡峰值。
-
-```bash
-bash scripts/run_stage.sh dev
-```
-
-四个主方法是 `baseline`、`direct`、`scalar`、`effect`。`rule` 是可选的
-零样本逐目标后果清单，不是已实现的符号依赖闭包方法。每个方法共用同一个
-Actor、环境、步骤/输出预算和检查点规则；辅助调用全部记账。对于 scalar/effect，
-检查训练数据、骨干和输入保持一致，而不只是参数数量接近。
-
-配置冻结后，才执行 `test` 阶段；该阶段耗时取决于实际服务速度，按服务器
-测量安排。`test` 不使用 `--limit`，也不做 fine-grained capture。
-
-```bash
-bash scripts/run_stage.sh test
-```
-
-明确 CLI 示例：
-
-```bash
-.venv/bin/python -m b2_appworld run --config runs/configs/appworld.json --split test_normal --method baseline --experiment final_baseline_normal --final
-.venv/bin/python -m b2_appworld evaluate-native --config runs/configs/appworld.json --experiment final_baseline_normal
-.venv/bin/python -m b2_appworld run --config runs/configs/appworld.json --split test_normal --method effect --checkpoint runs/checkpoints/effect_s100/best --experiment final_effect100_normal --final
-.venv/bin/python -m b2_appworld evaluate-native --config runs/configs/appworld.json --experiment final_effect100_normal
-```
-
-同样完整运行 test_challenge，并运行 direct、scalar 及其冻结 checkpoint。
-原生结果读取 `native_aggregate.json`。TGC 是完整任务成功率；SGC 是同一
-scenario 的3个任务全部成功的比例。不要把逐目标正确率当作 SGC，不要丢弃
-ineligible、预算耗尽或方法失败的任务。
-
-## 8. 交付与失败处理
-
-保存本次 repository commit、upstream commit、配置/数据/模型哈希、包版本、
-数据门控、映射审计、训练 summary、峰值显存、run receipts 和 native aggregate。
-分别报告训练、离线采标签及在线执行成本。日志中不得包含密钥。
-
-若出现错误，保留最小错误记录并先在 train/dev 重现。不要针对 test 单例
-改提示词、阈值、候选或模型；若发现与方法无关的实现错误，记录修复理由，
-重新冻结配置并对全部受影响方法完整重跑，不选择性补跑失败任务。
-
-服务器最终报告应明确列出：已真实完成的阶段、实际命令与提交、产物路径、
-实验结果、资源测量和未完成事项。没有真实 native aggregate 时，不能宣称
-主实验已完成或方法有效。
+本地 `fixture-smoke` 只用于接口排错。不要把合成报告、可信 receipt 引用、程序合法或四格文件齐全写成真实 P1 已通过。结果报告必须区分实测、已有报告引用和未核验信息。

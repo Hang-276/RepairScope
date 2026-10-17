@@ -1,10 +1,14 @@
-RepairScope
-Predicting Goal-Level Repair Effects for Scoped Agent Recovery
+RepairScope-Evo
+Self-Improving Repair Knowledge through Joint Counterfactual Execution
 
-This project extends the official AppWorld SimplifiedReActCodeAgent.
-AppWorld is maintained by the AppWorld authors and distributed under Apache-2.0:
+This project provides research orchestration for conditional repair knowledge.
+The AppWorld upstream source remains a pinned Git submodule at:
 https://github.com/StonyBrookNLP/appworld
-The upstream repository is included as a pinned Git submodule, not rebranded.
+Commit: 42b5bcf3cd334fee33f0c37c02070a9f5807add5
+AppWorld is maintained by its original authors under its applicable terms.
+The upstream repository is not rebranded or included in the Python package.
 
-Task data, decrypted protected source, model weights and derived task labels
-are not included. Their original terms continue to apply.
+Protected task data, decrypted protected source, task answers, trajectories,
+derived knowledge, model weights, and private experiment evidence are not
+included. Their original licenses and distribution restrictions continue
+to apply. Synthetic fixtures are software checks, not AppWorld results.
