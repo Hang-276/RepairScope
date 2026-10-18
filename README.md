@@ -2,6 +2,8 @@
 
 **Goal-Sufficient Dynamic Scope Learning for Reliable Long-Horizon Agents**
 
+当前执行阶段：**只推进Ours/A4**，见 [自主续接说明](docs/CLAUDE_OURS_ONLY_CONTINUATION.md)。其他对照、消融和B暂不运行。修改需及时记入 [变更记录](docs/CHANGELOG.md) 和服务器Markdown日志。
+
 在固定字段预算下，学习足以支持目标保护决策的动作作用范围。
 
 RepairScope v2 面向长程工具 Agent：一次动作既可能推进当前任务，也可能破坏已经满足的业务目标。方法使用同一合法前缀上的真实反事实动作结果，让 Scope 选择器学习“哪些信息会改变目标保护决策”，并用同一个 Predictor 支持执行前选择、合法检查与执行后修复。
@@ -10,6 +12,7 @@ RepairScope v2 面向长程工具 Agent：一次动作既可能推进当前任�
 
 | 文档 | 用途 |
 | --- | --- |
+| [Ours-only自主续接](docs/CLAUDE_OURS_ONLY_CONTINUATION.md) | 当前最高优先级阶段指令、离线修复、预算、自动推进及修改记录 |
 | [完整 Proposal 与 Evaluation Plan](docs/RepairScope_v2_Proposal.md) | 动机、相关工作、数学定义、损失、信息边界、实验与指标 |
 | [服务器 Claude 执行任务](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md) | 复用现有环境、同步代码、必要真实 Smoke、共享数据和正式实验 |
 | [协作与执行约定](CLAUDE.md) | 仓库操作、实验与数据边界 |

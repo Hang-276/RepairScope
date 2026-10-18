@@ -1,5 +1,7 @@
 # RepairScope v2：服务器 Claude 实验执行任务
 
+> 当前阶段已改为Ours-only。先读 [自主续接说明](CLAUDE_OURS_ONLY_CONTINUATION.md)，其中的最新事实、预算和操作范围优先于本文。本文保留完整研究交接背景；不要重新执行已完成的Smoke或据下文启动A0–A3、消融及B。
+
 本文件是完整、自包含的服务器交接任务。用户已决定放弃原版 A1 vs A3 方案，直接执行 RepairScope v2。代码由 MacBook 提交并推送到 GitHub；服务器只 clone 默认新版分支、核对代码版本并执行实验，不在服务器提交或推送代码。不要启动旧版入口，也不要覆盖原仓库、环境、数据、checkpoint 或其他任务。
 
 ## 1. 代码与已有状态
