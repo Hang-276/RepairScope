@@ -14,7 +14,7 @@ from typing import Any
 
 import torch
 
-from .schema import effective_protected, evaluate_goals, semantic_diff
+from .schema import effective_protected, evaluate_goals, goal_state_keys, semantic_diff
 
 KINDS = {"number": 0, "category": 1, "bool": 2, "text": 3, "reference": 4}
 OPS = {"keep": 0, "modify": 1, "create": 2, "delete": 3}
@@ -276,12 +276,16 @@ class Tensorizer:
                                 break
             visible_goals = evaluate_goals(record.get("state", {"fields": []}), record.get("goals", []))
             for gi, goal in enumerate(record.get("goals", [])):
-                if goal.get("field") in index:
-                    j = index[goal["field"]]
+                goal_keys = [key for key in goal_state_keys(goal, record.get("state", {"fields": []})) if key in index]
+                if goal_keys:
+                    j = index[goal_keys[0]]
                     tensors["goal_field"][i, gi] = j
                     tensors["goal_features"][i, gi] = torch.tensor(fingerprint(goal, f))
                     tensors["goal_mask"][i, gi] = True
-                    tensors["goal_priority"][i, j] += float(goal.get("weight", 1)) * (2.0 if effective_protected(goal, int(record.get("step", 0)), visible_goals[gi]) else 1.0)
+                    priority = (float(goal.get("weight", 1)) *
+                                (2.0 if effective_protected(goal, int(record.get("step", 0)), visible_goals[gi]) else 1.0))
+                    for key in goal_keys:
+                        tensors["goal_priority"][i, index[key]] += priority / len(goal_keys)
                 before = record.get("goal_before", [])
                 after_goals = record.get("goal_after", [])
                 if gi < len(before) and gi < len(after_goals) and before[gi] is not None and after_goals[gi] is not None:

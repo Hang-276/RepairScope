@@ -60,9 +60,9 @@ class BudgetLedger:
             raise BudgetExceeded("Backend exceeded its reserved atomic-call budget; incurred work was recorded")
 
 
-def evaluate_goals(state: dict, goals: list[dict]) -> list[bool | None]:
+def evaluate_goals(state: dict, goals: list[dict], previous: dict | None = None) -> list[bool | None]:
     from .schema import evaluate_goals as evaluate_predicates
-    return evaluate_predicates(state, goals)
+    return evaluate_predicates(state, goals, previous=previous)
 
 
 def goal_transition(before, after):
@@ -78,7 +78,7 @@ def protected_mask(goals: list[dict], before: list, step: int) -> list[bool]:
 def score_prediction(state, prediction, goals, action, step=0, config=None):
     config = config or {}
     before = evaluate_goals(state, goals)
-    after = evaluate_goals(prediction.get("next_state", state), goals)
+    after = evaluate_goals(prediction.get("next_state", state), goals, previous=state)
     protection = protected_mask(goals, before, step)
     progress, damage, unknown = 0.0, 0.0, 0.0
     probs = prediction.get("goal_probabilities", [])
@@ -229,19 +229,21 @@ class RepairController:
                     ranked = self.rank(state, goals, candidates, step)
                     selected = ranked[0]
                     before = evaluate_goals(state, goals)
+                previous_state = state
                 state, result = self._execute(env, state, selected["action"], selected, step, "execute")
-                after = evaluate_goals(state, goals)
+                after = evaluate_goals(state, goals, previous=previous_state)
                 self.logs[-1].update(goals=goals, goal_before=before, goal_after=after,
                                      goal_transitions=goal_transition(before, after), candidates=ranked)
                 damage = any(p and b is False for p, b in zip(protected_mask(goals, before, step), after))
                 predicted = selected.get("prediction", {}).get("next_state")
-                mismatch = predicted is not None and evaluate_goals(predicted, goals) != after
+                mismatch = predicted is not None and evaluate_goals(predicted, goals, previous=previous_state) != after
                 if (damage or mismatch) and self.config.get("repair", True) and self.predictor is not None and self.repairs < int(self.config.get("max_repairs", 4)):
                     repair_before = after
+                    repair_previous = state
                     repairs = self._candidates(state, goals, step, "repair", instruction)
                     repair_ranked = self.rank(state, goals, repairs, step)
                     state, repair_result = self._execute(env, state, repair_ranked[0]["action"], repair_ranked[0], step, "repair")
-                    repaired = evaluate_goals(state, goals)
+                    repaired = evaluate_goals(state, goals, previous=repair_previous)
                     self.logs[-1].update(goals=goals, goal_before=repair_before, goal_after=repaired,
                                          goal_transitions=goal_transition(repair_before, repaired), candidates=repair_ranked)
                     self.repairs += 1

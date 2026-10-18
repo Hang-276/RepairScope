@@ -115,7 +115,7 @@ def candidate_statistics(plan, predict, damage_scale=1.0):
             for (state, _), prediction in zip(inputs, predictions):
                 if evaluate_goals(state, goals)[i] is not True:
                     continue
-                after = evaluate_goals(prediction.get("next_state", {}), goals)
+                after = evaluate_goals(prediction.get("next_state", {}), goals, previous=state)
                 probs = prediction.get("goal_probabilities", [])
                 possibility = (float(probs[i][2]) if i < len(probs) else float(after[i] is False))
                 # An omitted protected field remains at risk even if the hard patch is unchanged.
@@ -296,7 +296,7 @@ def _branch_records(env, plan, predictor, ledger, selection_id):
                     "step": continuation_index, "trajectory_id": f"{selection_id}-{c_index}-{role}",
                     "state": state, "action": target, "next_state": result["state"],
                     "history": public_history(branch_history), "goals": goals,
-                    "goal_before": evaluate_goals(state, goals), "goal_after": evaluate_goals(result["state"], goals),
+                    "goal_before": evaluate_goals(state, goals), "goal_after": evaluate_goals(result["state"], goals, previous=state),
                     "scope": prediction.get("scope", []) if prediction_matches else [],
                     "prediction": prediction, "prequential_prediction_valid": prediction_matches,
                     "predicted_at_monotonic": prediction_time,
@@ -309,7 +309,7 @@ def _branch_records(env, plan, predictor, ledger, selection_id):
                 if not prediction_matches:
                     raise ValueError("Legally replayed branch state differs from its logged prediction input; provide previously observed condition.state and exact prefix")
                 record["goal_before"] = evaluate_goals(record["audit_state"], goals)
-                record["goal_after"] = evaluate_goals(record["audit_next_state"], goals)
+                record["goal_after"] = evaluate_goals(record["audit_next_state"], goals, previous=record["audit_state"])
                 records.append(record)
                 receipts.append(event)
                 if continuation_index == 0 and condition:

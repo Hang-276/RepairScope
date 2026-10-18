@@ -121,9 +121,11 @@ def compute_metrics(records: list[dict]) -> dict:
                     labels.append(int(miss))
         goals = record.get("goals", [])
         before = record.get("goal_before", evaluate_goals(record.get("state", {}), goals))
-        after = record.get("goal_after", evaluate_goals(record.get("next_state", {}), goals))
+        after = record.get("goal_after", evaluate_goals(record.get("next_state", {}), goals,
+                                                        previous=record.get("state", {})))
         transitions = goal_transition(before, after)
-        predicted_after = evaluate_goals(prediction.get("next_state", {}), goals)
+        predicted_after = evaluate_goals(prediction.get("next_state", {}), goals,
+                                         previous=record.get("state", {}))
         predicted_transitions = goal_transition(before, predicted_after)
         for i, transition in enumerate(transitions):
             if transition is None:

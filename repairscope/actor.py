@@ -32,10 +32,8 @@ def public_state(state: dict) -> dict:
 
 
 def public_goals(goals: list[dict]) -> list[dict]:
-    return [{k: copy.deepcopy(g[k]) for k in
-             ("id", "field", "op", "value", "protected", "weight", "protect_from_step", "protect_until_step",
-              "active_from", "active_until", "protect_after_satisfied", "description")
-             if k in g} for g in goals]
+    from .schema import GOAL_KEYS
+    return [{k: copy.deepcopy(g[k]) for k in sorted(GOAL_KEYS) if k in g} for g in goals]
 
 
 def public_history(history: list[dict], limit: int = 8) -> list[dict]:

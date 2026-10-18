@@ -72,7 +72,8 @@ def _goal_labels(record: dict, goals: list[dict], which: str) -> list[bool | Non
     values = record.get('goal_before' if which == 'before' else 'goal_after', [])
     supplied = dict(zip(ids, values))
     state = (record.get('audit_state') or record['state']) if which == 'before' else (record.get('audit_next_state') or record['next_state'])
-    fallback = evaluate_goals(state, goals)
+    previous = (record.get('audit_state') or record.get('state')) if which == 'after' else None
+    fallback = evaluate_goals(state, goals, previous=previous)
     return [supplied.get(goal['id'], fallback[i]) for i, goal in enumerate(goals)]
 
 
@@ -138,7 +139,7 @@ class _Accumulator:
                 self.operation_n += 1
                 self.operation_correct += int(patch_ops.get(key, 'keep') == target_op)
         truth_goals = _goal_labels(record, goals, 'after')
-        guessed_goals = evaluate_goals(prediction.get('next_state', {}), goals)
+        guessed_goals = evaluate_goals(prediction.get('next_state', {}), goals, previous=input_state)
         heads = prediction.get('goal_probabilities', [])
         for i, (before, after, guess) in enumerate(zip(before_goals, truth_goals, guessed_goals)):
             if before is not None and after is not None:
