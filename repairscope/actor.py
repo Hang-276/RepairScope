@@ -92,12 +92,20 @@ ACTION_FORMAT_GUIDE = (
     'Use the exact endpoint names listed in public_apis. cost must be a number. '
     'LEGAL CODE: code may call only apis.<app>.<api_name>(...). Never import or use requests, urllib, http, socket, '
     'os, subprocess or any network/file access; never invent URLs or placeholder values. '
+    'IMPORTANT: inspect the state and history. If the last action failed, do not repeat it; choose a different legal action. '
+    'If a previous action already succeeded and its output is in the state, do not repeat that action; use the output to advance. '
+    'When the task asks a question and the answer is present in the state, call apis.supervisor.complete_task(answer=<answer>). '
+    'When the task asks for state changes, apply them and then call apis.supervisor.complete_task(). '
+    'Unless the state already contains a valid access_token for the app, a code block must obtain it first: '
+    'call apis.supervisor.show_profile() and apis.supervisor.show_account_passwords(), find the row whose account_name '
+    'matches the app, call that app login API with the supervisor email and the returned password, and pass the returned '
+    'access_token to the task API in the SAME code block. The state contains the exact values returned by earlier calls. '
     'Do not guess an API response shape in advance: execute one API, observe its returned value in the next state, then continue. '
-    'Unless the current state already contains app credentials, the first action should be '
-    'apis.supervisor.show_account_passwords(); it returns a list of {account_name, password}. '
-    'Then call the app login API with that account_name/email and password, and pass the returned access_token to later calls. '
-    'Example: {"actions":[{"name":"supervisor.show_account_passwords","arguments":{},'
-    '"code":"import json\\nprint(json.dumps(apis.supervisor.show_account_passwords()))","cost":1}]}'
+    'Example code block (replace the final spotify API with the needed app/API): '
+    '"code":"import json\\nprofile = apis.supervisor.show_profile()\\npasswords = apis.supervisor.show_account_passwords()\\n'
+    'password = [row[\\"password\\"] for row in passwords if row[\\"account_name\\"] == \\"spotify\\"][0]\\n'
+    'login = apis.spotify.login(username=profile[\\"email\\"], password=password)\\n'
+    'print(json.dumps(apis.spotify.show_liked_songs(access_token=login[\\"access_token\\"])))"'
 )
 
 
@@ -151,6 +159,7 @@ class FrozenActor:
         self.last_cache_hit = False
         self.parse_repairs = 0
         self.rejected_candidates = 0
+        self.retries = 0
         self.cache: dict = {}
         self.cache_path = self.config.get("cache_path")
         if self.cache_path and Path(self.cache_path).exists():
@@ -179,16 +188,27 @@ class FrozenActor:
         body = {"model": self.config.get("model") or os.environ.get("ACTOR_MODEL", "gpt-4o-mini"),
                 "messages": messages, "temperature": self.config.get("temperature", 0.7),
                 "top_p": self.config.get("top_p", 1.0), "n": 1,
-                "max_tokens": int(self.config.get("max_tokens", 2048))}
-        request = urllib.request.Request(url, json.dumps(body).encode(),
-                  {"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
-        # No implicit retry: failed requests consume the same externally managed budget.
-        with urllib.request.urlopen(request, timeout=float(self.config.get("timeout", 120))) as response:
-            payload = json.load(response)
-        content = payload["choices"][0]["message"]["content"]
-        content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
-        parsed = json.loads(content)
-        return parsed.get("actions", []) if isinstance(parsed, dict) else parsed
+                "max_tokens": int(self.config.get("max_tokens", 4096))}
+        # A truncated completion is a formatting failure, not a candidate. Retry
+        # once or twice with a larger output cap; both arms share this policy.
+        last_error = None
+        for attempt in range(3):
+            request = urllib.request.Request(url, json.dumps(body).encode(),
+                      {"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+            with urllib.request.urlopen(request, timeout=float(self.config.get("timeout", 120))) as response:
+                payload = json.load(response)
+            try:
+                content = payload["choices"][0]["message"]["content"]
+                content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
+                parsed = json.loads(content)
+                return parsed.get("actions", []) if isinstance(parsed, dict) else parsed
+            except (KeyError, IndexError, TypeError, json.JSONDecodeError) as error:
+                last_error = error
+                if attempt == 2:
+                    break
+                self.retries += 1
+                body["max_tokens"] = min(8192, int(body["max_tokens"]) * 2)
+        raise ValueError(f"Frozen Actor returned no parseable JSON actions: {last_error}")
 
     def generate(self, state: dict, goals: list[dict], history: list[dict], count: int = 4,
                  mode: str = "execute", instruction: str = "") -> list[dict]:

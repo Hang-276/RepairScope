@@ -58,9 +58,11 @@ def _record(task_id: str, split: str, step: int, before: dict[str, Any], action:
               'split': split, 'evidence_origin': result['evidence_origin'], 'step': step,
               'state': deepcopy(before), 'action': deepcopy(action), 'next_state': deepcopy(result['state']),
               'history': deepcopy(history[-8:]), 'goals': deepcopy(goals),
-              'goal_before': evaluate_goals(label_before, goals,
-                                            previous=history[-1]['state'] if history else None),
-              'goal_after': evaluate_goals(label_after, goals, previous=label_before),
+              'goal_before': (result['goal_before'] if 'goal_before' in result else
+                              evaluate_goals(label_before, goals,
+                                             previous=history[-1]['state'] if history else None)),
+              'goal_after': (result['goal_after'] if 'goal_after' in result else
+                             evaluate_goals(label_after, goals, previous=label_before)),
               'scope': list(scope), 'scope_model_version': model_version,
               'audit': {**deepcopy(result['audit']), 'model_version': model_version},
               'action_valid': bool(result['valid']), 'execution_cost': float(result['cost']),

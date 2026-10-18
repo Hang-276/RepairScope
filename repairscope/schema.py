@@ -136,11 +136,10 @@ def validate_goals(goals: Any) -> list[dict[str, Any]]:
                     _require('filter_value' in goal or 'filter_expr' in goal,
                              'count filter needs filter_value or filter_expr')
         elif kind == 'answer':
-            # Answer goals may omit field and use the public/audit answer slot.
+            # Answer goals may omit field/value and use the public/audit answer
+            # slot; in that form they assert a non-placeholder answer exists.
             if goal.get('op') is not None:
                 _require(goal['op'] in OPS, 'unsupported answer operator')
-            _require('value' in goal or 'expr' in goal or 'field' in goal,
-                     'answer goal needs a value, expression, or field')
         elif kind == 'complete':
             if goal.get('op') is not None:
                 _require(goal['op'] in OPS, 'unsupported complete operator')
@@ -190,6 +189,10 @@ def _pattern_regex(pattern: str) -> re.Pattern:
     chunks = pattern.split('**')
     body = '.*'.join(re.escape(chunk).replace(r'\*', '[^.]*') for chunk in chunks)
     return re.compile('^' + body + '$')
+
+
+def goal_patterns(goal: Mapping[str, Any]) -> list[str]:
+    return _patterns(goal)
 
 
 def _patterns(goal: Mapping[str, Any]) -> list[str]:
@@ -525,6 +528,8 @@ def _evaluate_goal(state: Mapping[str, Any], goal: Mapping[str, Any],
                 return None
             return _compare(field.get('value'), target, goal.get('op', 'eq'))
         value = field.get('value')
+        if isinstance(value, str) and value.strip().strip('"').strip("'") in ('', '<<NOT_GIVEN>>'):
+            return False
         return bool(value) if isinstance(value, (str, int, float, bool)) else None
     if kind == 'complete':
         field = _complete_field(state, goal)

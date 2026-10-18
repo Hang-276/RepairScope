@@ -176,6 +176,22 @@ def _field(key: str, value: Any, kind: str | None = None, **kwargs: Any) -> dict
     return field
 
 
+def _scalar_matches(field: dict[str, Any]) -> bool:
+    """A mapped value that cannot be represented stays unknown, never a guess."""
+    if not field.get('known', True) or field.get('value') is None:
+        return True
+    value, kind = field['value'], field['kind']
+    if kind == 'reference':
+        return type(value) in (int, str)
+    if kind == 'bool':
+        return type(value) is bool
+    if kind == 'number':
+        return type(value) in (int, float) and not isinstance(value, bool)
+    if kind in ('text', 'category'):
+        return isinstance(value, str)
+    return False
+
+
 def public_state_update(state: Mapping[str, Any], action: Mapping[str, Any], output: str, observations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Parse only actual API-returned content, never read models or database IDs.
 
@@ -229,6 +245,8 @@ def public_state_update(state: Mapping[str, Any], action: Mapping[str, Any], out
                     fields[key]['exists'] = observed_exists
                     if not source_known or not observed_exists:
                         fields[key]['value'] = None
+                    if not _scalar_matches(fields[key]):
+                        fields[key].update(known=False, value=None)
                 for relation in spec.get('relations', []):
                     new_relations.append([endpoint.format(id=identity, **{k: v for k, v in action.get('arguments', {}).items() if k != 'id'}) for endpoint in relation])
     elif payload is not None:
@@ -242,6 +260,8 @@ def public_state_update(state: Mapping[str, Any], action: Mapping[str, Any], out
                     flatten(item, prefix + '[' + str(identity) + ']')
             else:
                 fields[prefix] = _field(prefix, value, nullable=True) if fields.get(prefix, {}).get('nullable') else _field(prefix, value)
+                if not _scalar_matches(fields[prefix]):
+                    fields[prefix].update(known=False, value=None)
         flatten(payload, api + '.output')
     else:
         # Public code output is legitimate information, not a hidden-state view.
