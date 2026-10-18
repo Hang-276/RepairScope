@@ -112,10 +112,17 @@ def _matched_prefix(records: list[dict], left: int, right: int) -> bool:
         return False
     if a.get("state") != b.get("state") or a.get("history", []) != b.get("history", []):
         return False
-    # If hidden offline pre-state evidence exists on both branches, it must
-    # confirm the same starting snapshot; it remains outside model inputs.
-    if a.get("audit_state") is not None and b.get("audit_state") is not None and a["audit_state"] != b["audit_state"]:
-        return False
+    # If hidden offline pre-state evidence exists on both branches, compare the
+    # fields both branches actually stored. Compact audit states intentionally
+    # omit unchanged private fields, so a field stored by one sibling and not
+    # the other is not evidence of a different prefix; overlapping fields must
+    # still agree.
+    if a.get("audit_state") is not None and b.get("audit_state") is not None:
+        left = {field["key"]: field for field in a["audit_state"].get("fields", [])}
+        right = {field["key"]: field for field in b["audit_state"].get("fields", [])}
+        for key in set(left) & set(right):
+            if left[key] != right[key]:
+                return False
     for key in ("prefix_id", "checkpoint_id", "source_prefix_id"):
         if key in a or key in b:
             if a.get(key) != b.get(key):

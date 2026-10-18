@@ -129,6 +129,34 @@ def public_api_catalog(metadata: dict) -> list[str]:
     return rows
 
 
+_PLACEHOLDER_MARKERS = ('obtained', 'your_token', 'placeholder', 'dummy_token', 'token_here',
+                        '<access_token>', 'access_token_here')
+
+
+def candidate_is_legal(action: dict) -> bool:
+    """Static legality gate for the public code block.
+
+    This is not a planner: it only rejects a candidate whose executable block
+    uses a placeholder token or whose named app API is absent from the code.
+    """
+    code = action.get('code')
+    if not code:
+        return True
+    calls = re.findall(r'apis\.([A-Za-z_]\w*)\.([A-Za-z_]\w*)\s*\(', code)
+    if not calls:
+        return False
+    name = action.get('name', '')
+    if name != 'code' and '.' in name:
+        if tuple(name.split('.', 1)) not in calls:
+            return False
+    lowered = code.lower()
+    if any(marker in lowered for marker in _PLACEHOLDER_MARKERS):
+        return False
+    if re.search(r"access_token\s*=\s*['\"]access_token['\"]", code):
+        return False
+    return True
+
+
 def actor_instruction(metadata: dict) -> str:
     """Render public task context within the served model's context budget.
 
@@ -163,6 +191,7 @@ class FrozenActor:
         self.last_cache_hit = False
         self.parse_repairs = 0
         self.rejected_candidates = 0
+        self.rejected_illegal = 0
         self.retries = 0
         self.http_calls = 0
         self.cache_hits = 0
@@ -222,7 +251,8 @@ class FrozenActor:
     def stats(self) -> dict:
         return {"calls": self.calls, "http_calls": self.http_calls,
                 "retries": self.retries, "cache_hits": self.cache_hits,
-                "rejected_candidates": self.rejected_candidates}
+                "rejected_candidates": self.rejected_candidates,
+                "rejected_illegal": self.rejected_illegal}
 
     def generate(self, state: dict, goals: list[dict], history: list[dict], count: int = 4,
                  mode: str = "execute", instruction: str = "") -> list[dict]:
@@ -273,11 +303,17 @@ class FrozenActor:
         parsed = []
         for item in raw:
             try:
-                parsed.append(normalize_action(item))
+                action = normalize_action(item)
             except (ValueError, TypeError):
                 # One malformed candidate must not discard the other legal
                 # proposals; the rejection is counted for the run receipt.
                 self.rejected_candidates += 1
+                continue
+            if not candidate_is_legal(action):
+                self.rejected_candidates += 1
+                self.rejected_illegal += 1
+                continue
+            parsed.append(action)
         selected = aggregate_candidates(parsed, parse=lambda action: action, count=count,
             key=lambda action: json.dumps({k: v for k, v in action.items() if k not in {"prob", "cost"}}, sort_keys=True))
         result = [{**item["action"], "prob": item["prob"]} for item in selected]

@@ -90,3 +90,37 @@ def test_counterfactual_domain_alignment_keeps_values_and_changes():
         assert field_map(record['audit_next_state'])[field['key']]['value'] == 'success'
     assert action['audit']['changes'] == [field['key']]
     assert reference['audit']['changes'] == []
+
+
+def test_compact_audit_does_not_false_reject_matched_prefix():
+    from repairscope.losses import _matched_prefix
+    common = _field('supervisor.tasks[1].status', 'pending')
+    extra = _field('supervisor.tasks[1].answer', 'x')
+    left = _cf_record('action', fields=(common, extra))
+    right = _cf_record('reference', fields=(common,))
+    # Public prefix states are identical; only the compact audit stores differ.
+    right['state'] = deepcopy(left['state'])
+    right['next_state'] = deepcopy(left['next_state'])
+    records = [left, right]
+    assert _matched_prefix(records, 0, 1)
+    changed = _field('supervisor.tasks[1].status', 'other')
+    right2 = _cf_record('reference', fields=(changed,))
+    right2['state'] = deepcopy(left['state'])
+    right2['next_state'] = deepcopy(left['next_state'])
+    assert not _matched_prefix([left, right2], 0, 1)
+
+
+def test_candidate_legality_rejects_placeholders_and_name_mismatch():
+    from repairscope.actor import candidate_is_legal
+    good = {'name': 'spotify.show_playlist', 'arguments': {},
+            'code': "login = apis.spotify.login(username='a', password='b')\n"
+                    "print(apis.spotify.show_playlist(access_token=login['access_token'], playlist_id=1))"}
+    assert candidate_is_legal(good)
+    bad_token = {'name': 'spotify.show_playlist', 'arguments': {},
+                 'code': "print(apis.spotify.show_playlist(access_token='obtained_from_supervisor_profile'))"}
+    assert not candidate_is_legal(bad_token)
+    bad_name = {'name': 'supervisor.complete_task', 'arguments': {},
+                'code': "print(apis.simple_note.show_note(note_id=1))"}
+    assert not candidate_is_legal(bad_name)
+    no_apis = {'name': 'a.b', 'arguments': {}, 'code': "print('hello')"}
+    assert not candidate_is_legal(no_apis)
