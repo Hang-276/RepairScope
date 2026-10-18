@@ -203,6 +203,88 @@ def _manifest(records, config):
     return {"format_version": 1, "records": len(records), "groups": groups, "evidence_origin": origins, "dataset_sha256": digest, "backend": "synthetic" if any(origin in ("synthetic", "fixture") for origin in origins) else "recorded", "schema": list(schema.values()), "gradient_boundaries": ["hard candidate retrieval", "v2 scope: exact hard forward / fixed-budget implicit sigmoid STE backward" if config.get("model", {}).get("goal_sufficient", False) else "hard top-k scope", "JSON hard decode", "unbound entity/free-text creation"], "soft_rollout_horizon": int(config["train"].get("horizon", 4))}
 
 
+def supervision_audit(records: list[dict], config: dict) -> dict:
+    """Count actual valid labels per loss component without changing training.
+
+    This is an engineering diagnostic: it exposes a component whose mask is
+    empty while the total loss can still look finite because masked means use a
+    clamped denominator.
+    """
+    from collections import defaultdict as _defaultdict
+    from .schema import cf_four_grid_targets
+    config = resolve_config(config)
+    tensorizer = Tensorizer(config)
+    audit_mask = changed = escape_mask = escape_positive = 0
+    goal_mask = goal_labeled = 0
+    records_without_audit = 0
+    fields = 0
+    chunk = 128
+    for start in range(0, len(records), chunk):
+        batch = tensorizer.batch(records[start:start + chunk])
+        audit_mask += int(batch['audit_mask'].sum())
+        changed += int(batch['target_changed'].sum())
+        escape_mask += int(batch['escape_mask'].sum())
+        escape_positive += int(batch['target_escape'].sum())
+        goal_mask += int(batch['goal_mask'].sum())
+        goal_labeled += int((batch['target_goal'] >= 0).sum())
+        fields += int(batch['mask'].sum())
+        records_without_audit += sum(int(row.sum()) == 0 for row in batch['audit_mask'])
+    pairs = _defaultdict(list)
+    for record in records:
+        if record.get('cf_pair_id'):
+            pairs[record['cf_pair_id']].append(record)
+    boundary_pairs = boundary_masked = boundary_nonzero = 0
+    paired_masked = paired_nonzero = 0
+    for cells in pairs.values():
+        if len(cells) not in (2, 4):
+            continue
+        try:
+            targets = cf_four_grid_targets(cells)
+        except ValueError:
+            continue
+        if any(targets['mask']):
+            boundary_pairs += 1
+            boundary_masked += sum(targets['mask'])
+            boundary_nonzero += sum(targets['mask'][i] and (targets['y1'][i] - targets['y0'][i]) != 0
+                                    for i in range(len(targets['keys'])))
+            paired_masked += sum(targets['mask'])
+            paired_nonzero += sum(targets['mask'][i] and (targets['y0'][i] != 0 or targets['y1'][i] != 0)
+                                  for i in range(len(targets['keys'])))
+    windows = _windows(records, max(1, int(config['train'].get('horizon', 4))))
+    effective = {
+        'scope_patch': audit_mask,
+        'changed_fields': changed,
+        'goal': goal_labeled,
+        'escape': escape_mask,
+        'escape_positive': escape_positive,
+        'boundary': boundary_masked,
+        'boundary_nonzero': boundary_nonzero,
+        'paired': paired_masked,
+        'paired_nonzero': paired_nonzero,
+        'rollout_windows_h2': sum(len(window) >= 2 for window in windows),
+        'rollout_windows_h4': sum(len(window) >= 4 for window in windows),
+    }
+    weights = config.get('loss', {})
+    active = {
+        'scope_patch': float(weights.get('scope', 1)) > 0 or float(weights.get('patch', 1)) > 0,
+        'goal': float(weights.get('goal', 1)) > 0,
+        'rollout': float(weights.get('rollout', 1)) > 0,
+        'escape': float(weights.get('escape', 1)) > 0,
+        'boundary': float(weights.get('boundary', 1)) > 0,
+        'paired': float(weights.get('paired', 0)) > 0,
+    }
+    value_key = {'scope_patch': 'scope_patch', 'goal': 'goal', 'rollout': 'rollout_windows_h4',
+                 'escape': 'escape', 'boundary': 'boundary', 'paired': 'paired'}
+    zero_active = [name for name, enabled in active.items()
+                   if enabled and effective.get(value_key[name], 0) == 0]
+    return {'records': len(records), 'fields': fields, 'audit_masked_fields': audit_mask,
+            'records_without_audit': records_without_audit,
+            'goal_slots': goal_mask, 'goal_labeled': goal_labeled,
+            'cf_pairs': len(pairs), 'cf_pairs_with_boundary': boundary_pairs,
+            'effective': effective, 'active_components': active,
+            'zero_active_components': zero_active}
+
+
 def train_model(records: list[dict], config: dict, output_dir: str | Path, resume: str | Path | None = None) -> dict:
     if not records:
         raise ValueError("Training requires at least one transition")
@@ -239,7 +321,10 @@ def train_model(records: list[dict], config: dict, output_dir: str | Path, resum
     outdir = Path(output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
     manifest = _manifest(records, config)
+    supervision = supervision_audit(records, config)
+    manifest["supervision_audit"] = supervision
     (outdir / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+    (outdir / "supervision_audit.json").write_text(json.dumps(supervision, ensure_ascii=False, indent=2) + "\n")
     (outdir / "manifest.json").write_text(json.dumps({**manifest, "effective_precision": effective_precision, "device": str(device)}, ensure_ascii=False, indent=2) + "\n")
     (outdir / "schema.json").write_text(json.dumps(manifest["schema"], ensure_ascii=False, indent=2) + "\n")
     (outdir / "goal_supervision_audit.json").write_text(json.dumps({key: value for key, value in decision_audit.items() if key != "groups"}, indent=2) + "\n")
@@ -306,7 +391,11 @@ def train_model(records: list[dict], config: dict, output_dir: str | Path, resum
             epoch += 1
             batch_cursor, order = 0, None
     save()
-    result = {"checkpoint": str(checkpoint_path.resolve()), "config": str((outdir / "config.json").resolve()), "manifest": str((outdir / "manifest.json").resolve()), "updates": global_step, "epochs_completed": epoch, "metrics": latest or (history[-1] if history else {}), "device": str(device), "effective_precision": effective_precision, "evidence_origin": manifest["evidence_origin"]}
+    result = {"checkpoint": str(checkpoint_path.resolve()), "config": str((outdir / "config.json").resolve()),
+              "manifest": str((outdir / "manifest.json").resolve()), "updates": global_step,
+              "epochs_completed": epoch, "metrics": latest or (history[-1] if history else {}),
+              "device": str(device), "effective_precision": effective_precision,
+              "evidence_origin": manifest["evidence_origin"], "supervision_audit": supervision}
     (outdir / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     return result
 

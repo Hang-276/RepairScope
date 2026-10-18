@@ -121,9 +121,11 @@ def compute_metrics(records: list[dict]) -> dict:
                     labels.append(int(miss))
         goals = record.get("goals", [])
         before = record.get("goal_before", evaluate_goals(record.get("state", {}), goals))
-        after = record.get("goal_after", evaluate_goals(record.get("next_state", {}), goals))
+        after = record.get("goal_after", evaluate_goals(record.get("next_state", {}), goals,
+                                                        previous=record.get("state", {})))
         transitions = goal_transition(before, after)
-        predicted_after = evaluate_goals(prediction.get("next_state", {}), goals)
+        predicted_after = evaluate_goals(prediction.get("next_state", {}), goals,
+                                         previous=record.get("state", {}))
         predicted_transitions = goal_transition(before, predicted_after)
         for i, transition in enumerate(transitions):
             if transition is None:
@@ -211,8 +213,17 @@ def grouped_bootstrap(results, key, samples=1000, seed=0):
 
 def aggregate_runs(results, bootstrap_samples=1000, seed=0):
     records = [record for result in results for record in result.get("logs", [])]
+    actor_calls = sum(1 for r in results for event in r.get("budget", {}).get("events", [])
+                      if event.get("kind") == "actor")
+    actor_retry_units = sum(float(event.get("units", 0)) for r in results
+                            for event in r.get("budget", {}).get("events", [])
+                            if event.get("kind") == "actor_retry_adjustment")
+    actor_retries = sum(1 for r in results for event in r.get("budget", {}).get("events", [])
+                        if event.get("kind") == "actor_retry_adjustment")
     summary = {"tasks": len(results), **official_metrics(results), "metrics": compute_metrics(records),
-               "cost": sum(float(r.get("cost", 0)) for r in results)}
+               "cost": sum(float(r.get("cost", 0)) for r in results),
+               "actor": {"calls": actor_calls, "retry_adjustments": actor_retries,
+                         "retry_units": actor_retry_units}}
     per_task = [{"task_id": r.get("task_id"), "group_id": r.get("group_id", str(r.get("task_id", "")).split("_")[0]),
                  **compute_metrics(r.get("logs", []))} for r in results]
     def ratio_interval(numerator, denominator):
