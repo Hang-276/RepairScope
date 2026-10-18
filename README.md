@@ -2,7 +2,7 @@
 
 **Goal-Sufficient Dynamic Scope Learning for Reliable Long-Horizon Agents**
 
-当前状态：**服务器已报告完成Stage1数据上的首轮Ours/SCPS训练：122条、30 epochs、253 updates；dev预测完成但无有效标签，效果不可测**。见 [运行记录](docs/OURS_SCPS_STAGE1_RUN.md)。6个支持CF组仅13–57字段，未形成B128预算竞争。服务器SCPS源码增量尚未交回MacBook合入，当前GitHub代码不能直接视作该checkpoint的复现版本。其他对照、消融和B不运行；修改需记入 [变更记录](docs/CHANGELOG.md)。
+当前状态：**正式数据集主实验尚未完成；服务器仅报告完成Stage1小样本Ours/SCPS运行：122条、30 epochs、253 updates，dev无有效标签、效果不可测**。用户目标是完整官方任务划分上的Ours实验，Stage1运行只作工程与训练拟合记录。见 [运行记录](docs/OURS_SCPS_STAGE1_RUN.md)。支持CF组未形成B128竞争；SCPS源码增量尚未交回合入，当前GitHub代码不能直接视作该checkpoint的复现版本。其他对照、消融和B不运行；修改需记入 [变更记录](docs/CHANGELOG.md)。
 
 在固定字段预算下，学习足以支持目标保护决策的动作作用范围。
 

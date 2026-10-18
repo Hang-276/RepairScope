@@ -2,6 +2,8 @@
 
 当前方法是 **Goal-Sufficient Dynamic Scope Learning**，当前阶段仅推进 **Ours/A4**。A0–A3、所有消融和B不运行。用户要求在明确边界内自主完成工作，并将每项修改即时记录到Markdown，以便追踪问题。
 
+用户明确要求正式数据集主实验，而非继续小样本训练。原方案的官方清单为train90/dev57/test_normal168（执行按pin版本逐ID核对）；必须落实正式train采集、独立有效dev和最终test流程。Stage1的122条不替代该目标；后续工作不能再次以原样重训Stage1交差。新增真实采集须明确全局预算，不借用历史余额。
+
 首先阅读 [Ours/SCPS首轮训练记录](docs/OURS_SCPS_STAGE1_RUN.md)。后续用户授权了预测充分性修订与6小时GPU预算内的一次训练；服务器报告30 epochs/253 updates已完成，但dev全invalid_action、业务指标不可测。旧 [Stage1终局](docs/STAGE1_RESULT.md) 和 [GS审查](docs/GS_OBJECTIVE_REVIEW.md) 保留为历史，不能据旧文档再次声称Ours从未启动。当前优先实际源码交接和dev根因修复，不原样重复训练122条。
 
 Ours-only入口仍是`scripts/repairscope/a4_goal_sufficient.sh`；全套main、A0–A3、消融和B不运行。历史Stage1新增环境578、累计918；本次训练报告253优化步、约4分20秒训练时间，该时间不代表全部GPU成本。原6小时GPU总上限不得重置；剩余862环境单位未因本次训练自动获准使用。当前仅整理文档，新增真实费用0。

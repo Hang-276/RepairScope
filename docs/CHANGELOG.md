@@ -4,6 +4,12 @@
 
 服务器逐项操作另记 `/root/autodl-tmp/RepairScope-server-notes/CHANGELOG_V2.md`，字段模板见 [自主续接说明第7节](CLAUDE_OURS_ONLY_CONTINUATION.md#7-每项修改必须即时写入markdown变更日志)。服务器日志、原始数据和权重不因这一要求自动加入Git。
 
+## 2026-10-18：纠正Stage1运行与正式主实验的范围
+
+- 用户明确追问为何未跑正式数据集。此前提示词为尽快开训，直接指定122/30 Stage1输入，缩小了用户要求的主实验范围；该运行不能替代原方案train90/dev57/test_normal168官方任务流程。
+- 更新README、CLAUDE及本次运行记录，明确正式主实验尚未完成，122条仅作工程/拟合记录，不以30epochs或原样重训补充任务覆盖。官方任务清单是环境任务，不是现成的监督transition文件；轨迹、CF、合法目标与独立dev标签仍需落实。
+- 不改历史运行、配置、数据或结果；仅文档定位更正。新增采集预算与实际有效样本数不编造。验证沿用本轮Markdown链接/围栏与Git空白检查，无新实验。
+
 ## 2026-10-18：记录Ours/SCPS Stage1首轮训练
 
 - 起点：`51d4cb8`。用户转交后续自主执行报告：122/30 train/dev、30 epochs、253 updates，84 updates有SCPS terms，训练约4分20秒；配置开启SCPS、关闭旧oracle GS。仅报告值，未接收或复验服务器源码、配置、权重和日志。
