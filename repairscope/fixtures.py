@@ -116,8 +116,11 @@ class FixtureEnv:
                 'evidence_origin': 'synthetic'}
 
     def branch(self, prefix: list[dict[str, Any]], action: dict[str, Any], condition: dict[str, Any] | None = None, max_cost: float | None = None) -> dict[str, Any]:
-        if self.split != 'train':
-            raise ValueError('Counterfactual branches are train-only')
+        evaluation_only = (self.split == 'dev' and self.offline_audit is True
+                           and self.config.get('collection', {}).get('split') == 'dev'
+                           and self.config.get('collection', {}).get('counterfactual_evaluation_only') is True)
+        if self.split != 'train' and not evaluation_only:
+            raise ValueError('Counterfactual branches are train-only unless explicit dev evaluation-only mode is enabled')
         other = FixtureEnv(self.config, self.task_id, self.split, self.experiment + '_branch')
         cost, verified = 0., True
         condition_receipts = []

@@ -351,11 +351,14 @@ class AppWorldAdapter:
         return self._request('evaluate')
 
     def branch(self, prefix: list[dict[str, Any]], action: dict[str, Any], condition: dict[str, Any] | None = None, max_cost: float | None = None) -> dict[str, Any]:
-        if self.split != 'train':
-            raise ValueError('Counterfactual replay/branch collection is train-only')
+        evaluation_only = (self.split == 'dev' and self.env_config.get('offline_audit') is True
+                           and self.config.get('collection', {}).get('split') == 'dev'
+                           and self.config.get('collection', {}).get('counterfactual_evaluation_only') is True)
+        if self.split != 'train' and not evaluation_only:
+            raise ValueError('Counterfactual replay/branch collection is train-only unless explicit dev evaluation-only mode is enabled')
         if condition:
             validate_condition(condition)
-        branch = AppWorldAdapter(self.config, self.task_id, 'train', self.experiment + '_cf_' + uuid.uuid4().hex[:12])
+        branch = AppWorldAdapter(self.config, self.task_id, self.split, self.experiment + '_cf_' + uuid.uuid4().hex[:12])
         try:
             return branch._start(mode='branch', extra={'prefix': prefix, 'action': action, 'condition': condition, 'max_cost': max_cost})
         finally:

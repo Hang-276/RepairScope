@@ -232,8 +232,11 @@ def worker_main(connection: Any, request: dict[str, Any]) -> None:
     pending_cost = False
     try:
         env = request['config']['environment']
-        if request['mode'] == 'branch' and request['split'] != 'train':
-            raise ValueError('Counterfactual replay is train-only')
+        evaluation_only = (request['split'] == 'dev' and env.get('offline_audit') is True
+                           and request['config'].get('collection', {}).get('split') == 'dev'
+                           and request['config'].get('collection', {}).get('counterfactual_evaluation_only') is True)
+        if request['mode'] == 'branch' and request['split'] != 'train' and not evaluation_only:
+            raise ValueError('Counterfactual replay is train-only unless explicit dev evaluation-only mode is enabled')
         if env.get('offline_audit') and request['split'] not in ('train', 'dev'):
             raise ValueError('Offline audit is train/dev only')
         _set_root(str(Path(env['root']).expanduser().resolve()))
@@ -248,7 +251,7 @@ def worker_main(connection: Any, request: dict[str, Any]) -> None:
         offline = bool(env.get('offline_audit', False))
         if request['mode'] == 'branch':
             if not offline:
-                raise ValueError('Training counterfactuals require offline_audit=true for verified prefix and condition labels')
+                raise ValueError('Counterfactuals require offline_audit=true for verified prefix and condition labels')
             total_cost, details = 0., {'replay': 0., 'condition': 0., 'target': 0.}
             prefix_receipts = []
             condition_receipts = []

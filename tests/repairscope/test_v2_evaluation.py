@@ -216,3 +216,18 @@ def test_probe_step_matches_condition_prefix_and_continuation_labels():
         env.close()
     assert [record['step'] for record in calls] == [6, 7, 6, 7]
     assert [record['step'] for record in records] == [6, 7, 6, 7]
+
+
+def test_unknown_oracle_hybrid_diagnostic_does_not_mask_real_decision_regret(monkeypatch, tmp_path):
+    import repairscope.decision as decision
+    spy(monkeypatch)
+    monkeypatch.setattr(decision, 'restricted_utility', lambda candidate, scope: None)
+    summary = evaluation.evaluate_predictions(config(), 'spy.pt', held_out_pair(), tmp_path, horizons=(1,))
+    result = summary['goal_sufficient_decision']
+    assert result['decision_regret_denominator'] == 1
+    assert result['decision_regret'] is not None
+    diagnostic = result['scope_isolation_oracle_patch_diagnostic']
+    assert diagnostic['mean_regret'] is None
+    assert diagnostic['coverage_numerator'] == 0
+    assert diagnostic['coverage_denominator'] == 1
+    assert diagnostic['unknown_restricted_goal_groups'] == 1

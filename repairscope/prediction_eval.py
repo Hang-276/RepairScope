@@ -261,11 +261,12 @@ def _decision_metrics(records: list[dict], predictions: dict[int, dict], config:
     The separate oracle-patch diagnostic isolates scope omission. Its choices do
     not use Predictor dynamics and must never be reported as prediction regret.
     """
-    from .decision import decision_groups
+    from .decision import decision_groups, restricted_utility
     grouping = decision_groups(records, config)
     total = int(grouping.get('decision_groups', len(grouping['groups'])))
     comparable = positive = preserved = protection = 0
     regret = reference_sum = selected_sum = diagnostic_regret = 0.0
+    diagnostic_comparable = 0
     excluded: dict[str, int] = defaultdict(int)
     for group in grouping['groups']:
         candidates = group.get('candidates', [])
@@ -283,19 +284,20 @@ def _decision_metrics(records: list[dict], predictions: dict[int, dict], config:
             record, prediction = records[index], predictions[index]
             scores.append(float(score_prediction(public_state(record['state']), prediction,
                 public_goals(record['goals']), record['action'], int(record['step']), config.get('controller', {}))['score']))
-            diagnostic_scores.append(float(candidate['baseline']) + sum(float(value)
-                for key, value in candidate['contributions'].items() if key in set(prediction.get('scope', []))))
+            diagnostic_scores.append(restricted_utility(candidate, prediction.get('scope', [])))
         utilities = [float(candidate['full_utility']) for candidate in candidates]
-        if not all(math.isfinite(value) for value in scores + utilities + diagnostic_scores):
+        if not all(math.isfinite(value) for value in scores + utilities):
             excluded['nonfinite_candidate_score'] += 1
             continue
         chosen = max(range(len(candidates)), key=lambda index: scores[index])
-        isolated = max(range(len(candidates)), key=lambda index: diagnostic_scores[index])
         reference = max(utilities)
         difference = max(0.0, reference - utilities[chosen])
         regret += difference
         positive += int(difference > 1e-12)
-        diagnostic_regret += max(0.0, reference - utilities[isolated])
+        if all(value is not None and math.isfinite(float(value)) for value in diagnostic_scores):
+            isolated = max(range(len(candidates)), key=lambda index: diagnostic_scores[index])
+            diagnostic_regret += max(0.0, reference - utilities[isolated])
+            diagnostic_comparable += 1
         selected_sum += utilities[chosen]
         reference_sum += reference
         comparable += 1
@@ -318,8 +320,11 @@ def _decision_metrics(records: list[dict], predictions: dict[int, dict], config:
         'decision_regret_semantics': 'deployed-controller total regret: selected action includes learned dynamics, risk, uncertainty, scope and action cost penalties; not scope-only causal loss',
         'decision_reference': 'maximum fully observed goal-decision utility in the same prefix/condition action-reference group',
         'scope_isolation_oracle_patch_diagnostic': {
-            'mean_regret': ratio(diagnostic_regret, comparable), 'regret_sum': diagnostic_regret,
-            'groups': comparable, 'is_prediction_regret': False,
+            'mean_regret': ratio(diagnostic_regret, diagnostic_comparable), 'regret_sum': diagnostic_regret,
+            'groups': diagnostic_comparable, 'coverage': ratio(diagnostic_comparable, comparable),
+            'coverage_numerator': diagnostic_comparable, 'coverage_denominator': comparable,
+            'unknown_restricted_goal_groups': comparable - diagnostic_comparable,
+            'is_prediction_regret': False,
         },
         'selected_goal_preservation_rate': ratio(preserved, protection),
         'selected_protected_goals_preserved': preserved, 'selected_protected_goals_evaluable': protection,

@@ -151,24 +151,48 @@ def collect_counterfactual(config: dict[str, Any], plans: Iterable[dict[str, Any
 
     Plans define legal conditions as executed API action lists plus a read-only
     condition query. Incomplete two-cell plans are permitted; four-cell boundary
-    masks remain false until all four aligned valid outcomes exist.
+    masks remain false until all four aligned valid outcomes exist. The explicit
+    dev-only evaluation mode freezes all plans before any execution and produces
+    labels that cannot enter training or adaptive probing.
     """
     config = normalize_config(config)
     config['environment']['offline_audit'] = True
-    if config.get('collection', {}).get('split', 'train') != 'train':
-        raise ValueError('Counterfactual acquisition is train-only')
+    settings = config.get('collection', {})
+    split = settings.get('split', 'train')
+    evaluation_only = settings.get('counterfactual_evaluation_only', False)
+    if type(evaluation_only) is not bool:
+        raise ValueError('collection.counterfactual_evaluation_only must be boolean')
+    if evaluation_only:
+        if split != 'dev':
+            raise ValueError('Evaluation-only counterfactual acquisition requires the dev split; test/challenge are forbidden')
+    elif split != 'train':
+        raise ValueError('Counterfactual acquisition is train-only unless dev evaluation-only mode is explicit')
     plans = load_mapping(plans)
     if isinstance(plans, dict):
         plans = plans.get('plans', [plans])
     plans = list(plans)
+    # Validate the entire frozen dev pool before constructing an environment.
+    # In particular, an omitted source split must not relabel a train plan.
+    for plan in plans:
+        if evaluation_only:
+            if plan.get('split') != 'dev' or plan.get('source_split') != 'dev':
+                raise ValueError('Evaluation-only plans require explicit split=dev and source_split=dev')
+        elif plan.get('split', 'train') != 'train' or plan.get('source_split', 'train') != 'train':
+            raise ValueError('Official dev/test branch records cannot be used for training')
+    plans_sha256 = hashlib.sha256(json.dumps(plans, sort_keys=True, separators=(',', ':'),
+        ensure_ascii=False, allow_nan=False).encode()).hexdigest()
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
+    if evaluation_only:
+        _json_write(output / 'evaluation_plan_manifest.json', {
+            'eval_only': True, 'frozen_query': True, 'nonadaptive': True,
+            'used_for_training': False, 'split': split, 'source_split': split,
+            'plans_sha256': plans_sha256, 'plans': len(plans),
+        })
     records, receipts = [], []
     total_cost = 0.
     seen_pairs = set()
     for plan in plans:
-        if plan.get('split', 'train') != 'train' or plan.get('source_split', 'train') != 'train':
-            raise ValueError('Official dev/test branch records cannot be used for training')
         task_id = plan['task_id']
         pair_id = str(plan.get('pair_id', plan.get('cf_pair_id', task_id + '-' + uuid.uuid4().hex[:12])))
         if pair_id in seen_pairs:
@@ -177,7 +201,7 @@ def collect_counterfactual(config: dict[str, Any], plans: Iterable[dict[str, Any
         prefix = deepcopy(plan.get('prefix', []))
         if config['environment']['backend'] == 'appworld' and any('output' not in step or not step.get('fingerprint') for step in prefix):
             raise ValueError('Real counterfactual prefix entries require exact action/output/fingerprint receipts from natural collection')
-        env = create_environment(config, task_id, 'train', 'rs_cf_' + uuid.uuid4().hex[:12])
+        env = create_environment(config, task_id, split, 'rs_cf_' + uuid.uuid4().hex[:12])
         env.reset()
         goals = deepcopy(plan.get('goals', env.metadata.get('goals', [])))
         conditions = plan.get('conditions') or {'c0': None}
@@ -203,17 +227,25 @@ def collect_counterfactual(config: dict[str, Any], plans: Iterable[dict[str, Any
                     before = result['before_state']
                     scope = list(plan.get('scope', _scope(before, action, config)[0]))
                     version = plan.get('model_version', 'collection-public-prior-v1')
-                    record = _record(task_id, 'train', len(prefix), before, action, result, [], goals, scope, version,
+                    history = (conditions[condition_name] or {}).get('history', plan.get('history', [])) if evaluation_only else []
+                    record = _record(task_id, split, len(prefix), before, action, result, history, goals, scope, version,
                                      group_id=plan.get('group_id', task_id), trajectory_id=pair_id + '-' + condition_name + '-' + role)
                     record.update(cf_pair_id=pair_id, cf_condition=condition_name, cf_role=role,
                                   prefix_verified=result.get('prefix_verified', False),
                                   condition_verified=result.get('condition_verified', True),
                                   counterfactual_cost_breakdown=result.get('cost_breakdown', {}))
+                    if evaluation_only:
+                        record.update(frozen_query=True, used_for_training=False,
+                                      counterfactual_evaluation_only=True, evaluation_plans_sha256=plans_sha256,
+                                      source_prefix_id=hashlib.sha256(json.dumps(
+                                          {'task_id': task_id, 'split': split, 'prefix_identity': identity},
+                                          sort_keys=True, ensure_ascii=False).encode()).hexdigest())
                     validate_transition(record)
                     records.append(record)
                     receipts.append({'pair_id': pair_id, 'condition': condition_name, 'role': role, 'cost': result['cost'],
                                      'valid': result['valid'], 'error': result.get('error'),
-                                     'prefix_fingerprint': result.get('prefix_fingerprint'), 'process_isolation': result.get('process_isolation')})
+                                     'prefix_fingerprint': result.get('prefix_fingerprint'), 'process_isolation': result.get('process_isolation'),
+                                     'split': split, 'source_split': split, 'eval_only': evaluation_only})
                     write_jsonl(output / 'transitions.jsonl', records)
                     _json_write(output / 'receipts.json', receipts)
         except BaseException as error:
@@ -227,6 +259,9 @@ def collect_counterfactual(config: dict[str, Any], plans: Iterable[dict[str, Any
     write_jsonl(output / 'transitions.jsonl', records)
     summary = {**validate_dataset(records, allow_synthetic=config['environment']['backend'] == 'fixture'),
                'total_cost': total_cost, 'cells': len(records), 'receipts': str((output / 'receipts.json').resolve()),
+               'eval_only': evaluation_only, 'frozen_query': evaluation_only, 'used_for_training': split == 'train',
+               'collection_role': 'held_out_counterfactual_evaluation' if evaluation_only else 'training',
+               'plans_sha256': plans_sha256, 'nonadaptive': True,
                'scientific_evidence': config['environment']['backend'] == 'appworld', 'path': str((output / 'transitions.jsonl').resolve())}
     _json_write(output / 'summary.json', summary)
     return summary
