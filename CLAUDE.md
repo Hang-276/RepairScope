@@ -2,15 +2,15 @@
 
 当前方法是 **Goal-Sufficient Dynamic Scope Learning**，当前阶段仅推进 **Ours/A4**。A0–A3、所有消融和B不运行。用户要求在明确边界内自主完成工作，并将每项修改即时记录到Markdown，以便追踪问题。
 
-首先阅读 [Ours-only自主续接说明](docs/CLAUDE_OURS_ONLY_CONTINUATION.md)，它覆盖旧交接中的阶段安排。方法与完整Eval见 [v2 Proposal](docs/RepairScope_v2_Proposal.md)，旧 [服务器交接](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md) 仅补充接口、路径与历史背景。默认 `main` 是新版方法；历史由Git追溯。
+首先阅读 [续接后的结论与当前交付任务](docs/V2_POST_CONTINUATION_DECISION.md)，再查 [Ours-only自主续接说明](docs/CLAUDE_OURS_ONLY_CONTINUATION.md)中的持续约束。一次离线续接已结束，当前只整理实际补丁、完整正式数据计划和收据，不重复诊断或启动正式实验。方法与完整Eval见 [v2 Proposal](docs/RepairScope_v2_Proposal.md)，旧 [服务器交接](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md) 仅补充接口、路径与历史背景。默认 `main` 是新版方法；历史由Git追溯。
 
-正式Ours唯一入口是 `scripts/repairscope/a4_goal_sufficient.sh`，准入、正式数据与明确预算满足后才运行。禁止运行 `run_goal_sufficient_main.sh`（会自动运行其他组）及 `run_goal_sufficient_b.sh`。当前先用已有数据做一次离线派生字段修复与监督判定；前轮3任务上限已到，不自动重置300单位预算，也不追加相同Smoke。
+正式Ours唯一入口是 `scripts/repairscope/a4_goal_sufficient.sh`，准入、正式数据与明确预算满足后才运行。禁止运行 `run_goal_sufficient_main.sh`（会自动运行其他组）及 `run_goal_sufficient_b.sh`。派生字段修复与一次离线监督判定已完成；前轮3任务上限已到，不自动重置300单位预算，也不追加相同Smoke。当前新增环境/Actor/优化步均为0。
 
 代码与文档由MacBook提交并推送到默认 `main`（交付分支同步）。服务器保留已有无.git快照和修复，不为读取说明覆盖源码；复用环境，不提交/推送、不重装依赖或影响其他任务。服务器修复输出源码patch和hash，由MacBook后续核验合入。
 
 ## 已知输入缺口
 
-用户最新服务器报告：基于0ce975d快照已有F1–F3修复、95项测试与H4硬递推；phone组oracle GS仍为0，follow派生计数字段无可靠审计而unknown；正式train/dev未冻结。详细hash和路径在续接说明，均须依据实际收据核验。这些修复尚不能仅凭服务器路径认定已同步到MacBook。
+用户最新服务器报告：基于0ce975d快照已有F1–F3修复、95项测试与H4硬递推；follow等义标签已恢复，follow 6组与phone 4组在当前权重下oracle GS饱和，真实Predictor仍有错误。正式train/dev及test目标映射未冻结，正式预算未明确。主结论为FORMAL_INPUTS_NOT_READY；不能从10组外推全局无信号，也不能把Smoke权重的预测错误当作正式训练失效。详细报告见当前交付任务，实际补丁尚未合入MacBook。
 
 ## 执行边界
 
@@ -24,4 +24,4 @@
 - 安装/接口等义bug可自行修；新增方法、标签语义、测试协议或预算超出本次已授权范围时停止受影响链路，提交具体问题。不得把本次明确批准的v2改造再当成需要审批的未授权变更。
 - 运行和修复日志继续放 `/root/autodl-tmp/RepairScope-server-notes` 与独立run目录，保留真实SHA、配置、数据/模型hash、失败成本和恢复边界。无凭据、模型权重、大数据或无关文件进Git。正式运行只允许同配置/同数据exact resume，v1不冒充v2续训。
 
-当前阶段以Ours-only续接说明为准。完整Proposal描述研究设计，不自动授权全部实验；工程测试不提供方法效果保证。
+当前任务以续接后的结论与交付说明为准，Ours-only续接说明中的持续约束保留。完整Proposal描述研究设计，不自动授权全部实验；工程测试不提供方法效果保证。

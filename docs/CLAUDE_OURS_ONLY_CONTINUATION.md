@@ -1,6 +1,8 @@
 # RepairScope v2：Ours-only 自主续接任务
 
-本说明是当前执行阶段的最高优先级任务。用户要求第一阶段只跑 Ours，并让服务器 Claude 在明确边界内自主推进。完整 Proposal 中的 A0–A3、消融、B 和跨环境评估是后续研究设计，当前均不启动。
+**状态更新（2026-10-18）：本文件规定的一次离线续接已完成，结论为FORMAL_INPUTS_NOT_READY，并有NO_IDENTIFIED_SCOPE_LEARNING_GAP。当前先执行[续接后的结论与交付任务](V2_POST_CONTINUATION_DECISION.md)，不要重复下述已完成步骤。本文的Ours-only、预算和变更记录约束继续有效。**
+
+本说明保留已完成离线续接的指令与持续执行边界，当前新增任务以顶部链接的结论与交付说明为准。用户要求第一阶段只跑 Ours，并让服务器 Claude 在明确边界内自主推进。完整 Proposal 中的 A0–A3、消融、B 和跨环境评估是后续研究设计，当前均不启动。
 
 ## 1. 接手方式与当前事实
 
