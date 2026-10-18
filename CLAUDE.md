@@ -2,7 +2,7 @@
 
 当前方法是 **Goal-Sufficient Dynamic Scope Learning**，当前阶段仅推进 **Ours/A4**。A0–A3、所有消融和B不运行。用户要求在明确边界内自主完成工作，并将每项修改即时记录到Markdown，以便追踪问题。
 
-首先阅读 [采集硬额度与当前任务](docs/V2_ACQUISITION_BUDGET.md)，再查 [Ours-only自主续接说明](docs/CLAUDE_OURS_ONLY_CONTINUATION.md)中的持续约束。服务器F3/F4更新已经报告完成；当前应用F5采集限额并静态整理既定15任务的公开目标/计划，不重新打包、不重复GS诊断或启动正式实验。方法与完整Eval见 [v2 Proposal](docs/RepairScope_v2_Proposal.md)，旧 [服务器交接](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md) 仅补充接口、路径与历史背景。默认 `main` 是新版方法；历史由Git追溯。
+首先阅读 [一次Stage1采集决策](docs/V2_STAGE1_ACQUISITION.md)，再查 [Ours-only自主续接说明](docs/CLAUDE_OURS_ONLY_CONTINUATION.md)中的持续约束。服务器F1–F5更新已报告完成，当前是固定15任务/1,440环境单位的数据采集申请；**用户尚未批准该新增预算，不执行真实调用**。获批准后按该说明一次推进，无需逐任务确认。方法与完整Eval见 [v2 Proposal](docs/RepairScope_v2_Proposal.md)，旧 [服务器交接](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md) 仅补充接口、路径与历史背景。默认 `main` 是新版方法；历史由Git追溯。
 
 正式Ours唯一入口是 `scripts/repairscope/a4_goal_sufficient.sh`，准入、正式数据与明确预算满足后才运行。禁止运行 `run_goal_sufficient_main.sh`（会自动运行其他组）及 `run_goal_sufficient_b.sh`。派生字段修复与一次离线监督判定已完成；前轮3任务上限已到，不自动重置300单位预算，也不追加相同Smoke。当前新增环境/Actor/优化步均为0。
 
@@ -10,7 +10,7 @@
 
 ## 已知输入缺口
 
-用户最新服务器报告：F3/F4及新增回归文件after hash与本地一致，33项服务器CPU工程回归通过；旧H4/GS收据不冒充新版复验。MacBook另完成F5共享持久采集账本，313项本地CPU回归通过，服务器尚需应用本轮F5 patch。follow 6组与phone 4组在既有权重下oracle GS饱和、Predictor仍有错误；正式数据、goal map和总预算仍未冻结。
+用户最新服务器报告：F5已应用legacy import变体，五文件after hash与既有receipt一致，60项服务器模拟回归通过。15任务绑定为4精确/10规则待公开实例化/1多义unknown。具体ID可在计费自然读取中依冻结规则解析；多义目标不任选，人数变化不无条件代替follow业务目标。正式采集未批准、数据未冻结；旧H4/GS不冒充新版重验，既有10组oracle饱和不外推全方法。
 
 ## 执行边界
 
@@ -24,4 +24,4 @@
 - 安装/接口等义bug可自行修；新增方法、标签语义、测试协议或预算超出本次已授权范围时停止受影响链路，提交具体问题。不得把本次明确批准的v2改造再当成需要审批的未授权变更。
 - 运行和修复日志继续放 `/root/autodl-tmp/RepairScope-server-notes` 与独立run目录，保留真实SHA、配置、数据/模型hash、失败成本和恢复边界。无凭据、模型权重、大数据或无关文件进Git。正式运行只允许同配置/同数据exact resume，v1不冒充v2续训。
 
-当前任务以采集硬额度说明为准，Ours-only续接说明中的持续约束保留。真实采集必须配置同一持久账本，不能因切换train/dev/natural/CF或目录重置额度。完整Proposal描述研究设计，不自动授权全部实验；工程测试不提供方法效果保证。
+当前阶段以一次Stage1采集决策及实际用户授权为准，Ours-only续接说明中的持续约束保留。真实采集必须配置同一持久账本，不能因切换train/dev/natural/CF或目录重置额度。完整Proposal描述研究设计，不自动授权全部实验；工程测试不提供方法效果保证。

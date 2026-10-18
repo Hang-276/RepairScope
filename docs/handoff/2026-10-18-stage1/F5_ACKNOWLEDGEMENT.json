@@ -1,0 +1,52 @@
+{
+  "input_sha256": "1464158058eb615062c82125cbfd486ca3d7d938e90d2df0ccf6a2f8e424ebe7",
+  "patch_sha256": "102c79170ac7ec8af06a18b40de3e940891682ecc3d8933e12257a6e5babb3be",
+  "receipt_sha256": "ff39fd993b1dcfdf2439e18d52b9c53cba9f7ae8c3326e893f24aec82487880c",
+  "source_checks": [
+    {
+      "file": "repairscope/actor.py",
+      "server_reported_after_sha256": "47af2bc3219afb13f181e07e1bbc7bef99ea2b972d3e4f86cec43a216e6997fd",
+      "matches_expected_receipt": true,
+      "verification": "report hash versus previously tested patch; no live server access"
+    },
+    {
+      "file": "repairscope/collection.py",
+      "server_reported_after_sha256": "55aa918a4081239ddb85a9fc9d2701918e2c81f07f121d86dd295b3455791acb",
+      "matches_expected_receipt": true,
+      "verification": "report hash versus previously tested patch; no live server access"
+    },
+    {
+      "file": "repairscope/acquisition_budget.py",
+      "server_reported_after_sha256": "ff66f78eb99c5201e9775660ea2259abf67e4d751bfc42c7c7275ae27bf4a1d9",
+      "matches_expected_receipt": true,
+      "verification": "report hash versus previously tested patch; no live server access"
+    },
+    {
+      "file": "tests/repairscope/test_acquisition_ledger.py",
+      "server_reported_after_sha256": "be077cd82b4d49192a1fb76cc60f0ecb1b81990fccb293c90ba1e871c4e353d0",
+      "matches_expected_receipt": true,
+      "verification": "report hash versus previously tested patch; no live server access"
+    },
+    {
+      "file": "tests/repairscope/test_acquisition_budget.py",
+      "server_reported_after_sha256": "9c982bd4f922e7120223360671a9d00920c877aa58aea978ee045754597a1c52",
+      "matches_expected_receipt": true,
+      "verification": "report hash versus previously tested patch; no live server access"
+    }
+  ],
+  "server_test_reported_only": "60 passed in 0.48s; fixture/mock/fault injection",
+  "server_source_tree_reported_only": "98983a742b270029970176b989abe0dc4d9188b97f1b0eff5396800ccd415fbc",
+  "binding_summary_reported_only": {
+    "exact": 4,
+    "rule_frozen_needs_public_instantiation": 10,
+    "ambiguous_unknown": 1
+  },
+  "reported_external_files_not_received": {
+    "STAGE1_TARGET_BINDING.md": "090fd1bb00d256729f4032c39cdb57d449f5797e9551905d7d51a11f6bdb202d",
+    "FORMAL_DATA_PLAN.md": "9f096fb20793df8d9fb864a46b14e4e08cbf5f206cfb048f41e41a3fc8fa2aba",
+    "FORMAL_DATA_MANIFEST.json": "429fbdb844a4d8712a0c0504c73bdc6228a74e4846b18b7edd9c4ffed444dfba"
+  },
+  "new_real_environment_actor_formal_optimizer_cost_reported": 0,
+  "formal_acquisition_approved": false,
+  "formal_ours_started": false
+}

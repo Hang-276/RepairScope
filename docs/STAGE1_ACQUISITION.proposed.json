@@ -1,0 +1,86 @@
+{
+  "format_version": 1,
+  "stage": "repairscope-v2-stage1-acquisition-seed100",
+  "status": "PROPOSED_REQUIRES_USER_APPROVAL",
+  "documentation": "docs/V2_STAGE1_ACQUISITION.md",
+  "base_macbook_commit": "824bd46e0f2df9d6dd9f7e551a5d815701f0498f",
+  "seed": 100,
+  "task_order": {
+    "train": [
+      "302c169_1",
+      "302c169_2",
+      "302c169_3",
+      "07b42fd_1",
+      "07b42fd_2",
+      "07b42fd_3",
+      "b7a9ee9_1",
+      "b7a9ee9_2",
+      "b7a9ee9_3",
+      "aa8502b_1",
+      "aa8502b_2",
+      "aa8502b_3"
+    ],
+    "dev": [
+      "d4e9306_1",
+      "d4e9306_2",
+      "d4e9306_3"
+    ]
+  },
+  "budget": {
+    "ledger_path": "/root/autodl-tmp/RepairScope-server-notes/stage1/acquisition_ledger.json",
+    "run_id": "repairscope-v2-stage1-seed100",
+    "environment_limit": 1440,
+    "natural_step_limit": 4,
+    "cf_cell_limit": 14,
+    "actor_generation_limit": 150,
+    "actor_http_limit": 450
+  },
+  "slot_limits": {
+    "natural_attempts_per_task": 10,
+    "cf_pair_attempts_per_task": 1,
+    "cf_cells_per_pair": 4,
+    "total_natural_attempts": 150,
+    "total_cf_cells": 60,
+    "replacement_tasks": 0,
+    "environment_action_or_pair_retries": 0,
+    "actor_format_http_attempts_per_generate": 3
+  },
+  "ambiguity_policy": {
+    "302c169_2": "Only resolve from public instruction/data. If still ambiguous, read-only/unknown, no alarm writes or CF substitution; occupies original slot."
+  },
+  "required_before_collection": [
+    "public goal selection rules, initial time, pagination and dedup frozen",
+    "CF condition/reference/first-prefix selection rule frozen independent of GS and success",
+    "explicit user approval of this new global budget"
+  ],
+  "dynamic_values": "Concrete IDs and exact CF replay receipts are mechanically instantiated from charged public natural observations; no fake receipts or hidden-checker goal discovery.",
+  "phase_order": [
+    "train natural",
+    "dev natural",
+    "train counterfactual",
+    "dev frozen evaluation-only counterfactual",
+    "one offline dataset/supervision audit"
+  ],
+  "dev_cf": {
+    "counterfactual_evaluation_only": true,
+    "frozen_query": true,
+    "used_for_training": false,
+    "source_split": "dev"
+  },
+  "unspent_allowance": "Never recycled into extra tasks, steps, pairs, retries, or prior/Scope changes.",
+  "excludes": [
+    "formal training/GPU allocation",
+    "test_normal controller budget",
+    "A0-A3",
+    "ablations",
+    "B"
+  ],
+  "existing_reported_environment_units": 340,
+  "maximum_reported_lifetime_environment_if_fully_used": 1780,
+  "notes": [
+    "1440 is an incremental requested ceiling, not approved spend or promised yield.",
+    "All failures and replay/API costs share the same ledger. Unknown costs seal the run.",
+    "Existing smoke/supplement records are not relabeled as formal data.",
+    "If reliable oracle GS groups remain saturated, report NO_IDENTIFIED_SCOPE_LEARNING_GAP; no autonomous training or resampling."
+  ]
+}
