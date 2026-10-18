@@ -144,6 +144,11 @@ def _loss_for_windows(model, tensorizer, windows, config, device, auxiliary):
     components = transition_losses(output, initial, config)
     counter = counterfactual_losses(output, initial, config)
     decision = goal_sufficiency_loss(output, initial, config)
+    decision_gradient = 0.0
+    if float(config["loss"].get("goal_sufficiency", 0)) > 0 and output["scope_logits"].requires_grad and decision["goal_sufficiency"].requires_grad:
+        direct_gradient = torch.autograd.grad(decision["goal_sufficiency"], output["scope_logits"], retain_graph=True, allow_unused=True)[0]
+        if direct_gradient is not None:
+            decision_gradient = float(direct_gradient.detach().float().norm().cpu())
     weights = config["loss"]
     total = components["step"]
     roll_losses = [rollout_state_loss(output, initial)]
@@ -188,7 +193,9 @@ def _loss_for_windows(model, tensorizer, windows, config, device, auxiliary):
     metrics.update(loss=float(total.detach().cpu()), rollout=float(roll.detach().cpu()), escape=float(escape.detach().cpu()), boundary=float(boundary.detach().cpu()), paired=float(pair.detach().cpu()), auxiliary_active=bool(auxiliary))
     metrics.update(goal_sufficiency=float(decision["goal_sufficiency"].detach().cpu()), goal_relevant_escape=float(goal_escape.detach().cpu()),
                    decision_groups=decision["decision_groups"], decision_eligible_groups=decision["decision_eligible_groups"],
-                   decision_informative_groups=decision["decision_informative_groups"])
+                   decision_informative_groups=decision["decision_informative_groups"],
+                   goal_sufficiency_scope_gradient_norm=decision_gradient)
+    metrics.update({key: value for key, value in decision.items() if key != "goal_sufficiency" and isinstance(value, (int, float))})
     return total, metrics
 
 

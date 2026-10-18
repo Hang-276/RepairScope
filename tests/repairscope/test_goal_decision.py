@@ -8,6 +8,7 @@ from repairscope.decision import (decision_groups, goal_relevant_evidence,
                                  scope_supervision_audit)
 from repairscope.fixtures import fixture_records
 from repairscope.tensorizer import Tensorizer
+from repairscope.schema import evaluate_goals, semantic_diff
 
 
 CONFIG = {"goal_decision": {"progress_weight": 1., "damage_weight": 5.,
@@ -308,3 +309,162 @@ def test_supervision_preflight_detects_constant_utility_across_competing_fields(
     assert audit["decision_informative_groups"] == audit["decision_retrievable_groups"] == 1
     assert audit["contribution_fields_competitive"] > 0
     assert audit["decision_trainable_groups"] == 0
+
+
+def numeric_pair(goals, before_values, action_values, reference_values=None):
+    def state(values):
+        return {"fields": [{"key": key, "kind": "number", "value": value, "known": True,
+                            "exists": True, "choices": []} for key, value in values.items()], "relations": []}
+    records = pair()
+    before = state(before_values)
+    for record, values in zip(records, (action_values, reference_values or before_values)):
+        after = state(values)
+        record.update(state=deepcopy(before), next_state=deepcopy(after), audit_state=deepcopy(before),
+                      audit_next_state=deepcopy(after), goals=deepcopy(goals),
+                      goal_before=evaluate_goals(before, goals, previous=before),
+                      goal_after=evaluate_goals(after, goals, previous=before))
+        record["audit"].update(complete=True, field_domain=list(before_values), changes=semantic_diff(before, after))
+    return records
+
+
+def test_compound_forward_uses_exact_hybrid_not_additive_goal_attribution():
+    goal = {"id": "sum", "kind": "aggregate", "aggregate": "sum", "fields": ["d.a", "d.b"],
+            "op": "le", "value": 1., "protected": True}
+    records = numeric_pair([goal], {"d.a": 0., "d.b": 0., "d.c": 10.},
+                           {"d.a": 1., "d.b": 1., "d.c": 10.})
+    built = decision_groups(records, CONFIG)
+    assert built["decision_compound_groups"] == built["decision_informative_groups"] == 1
+    action = built["groups"][0]["candidates"][0]
+    assert action["utility_mode"] == "oracle_hybrid" and action["contributions"] == {}
+    assert action["full_utility"] == pytest.approx(-6.01)
+    assert restricted_utility(action, ["d.a"]) == pytest.approx(-.01)
+    assert restricted_utility(action, ["d.b"]) == pytest.approx(-.01)
+    assert restricted_utility(action, ["d.a", "d.b"]) == pytest.approx(-6.01)
+    batch = Tensorizer(CONFIG).batch(records)
+    gate = torch.tensor([[1., 0., 1.], [1., 0., 1.]], requires_grad=True)
+    loss = goal_sufficiency_loss({"scope_gate": gate}, batch, CONFIG)
+    assert loss["actual_label_loss_groups"] == 1 and loss["goal_sufficiency"].item() > .5
+    loss["goal_sufficiency"].backward()
+    assert gate.grad[0, 1].abs().item() > 1.
+    assert gate.grad[0, 2].item() == 0.
+
+
+def test_compound_preflight_witnesses_real_fixed_budget_scope_opportunities():
+    goal = {"id": "sum", "kind": "aggregate", "aggregate": "sum", "fields": ["d.a", "d.b"],
+            "op": "le", "value": 1., "protected": True}
+    records = numeric_pair([goal], {"d.a": 0., "d.b": 0., "d.c": 10.},
+                           {"d.a": 1., "d.b": 1., "d.c": 10.})
+    config = supervision_config(scope_budget=2)
+    audit = scope_supervision_audit(records, Tensorizer(config), config)
+    assert audit["decision_trainable_groups"] == 1
+    assert audit["decision_compound_scope_probes"] > 0
+    # At B=1, neither legal singleton can reveal this joint threshold crossing.
+    config = supervision_config(scope_budget=1)
+    assert scope_supervision_audit(records, Tensorizer(config), config)["decision_trainable_groups"] == 0
+
+
+def test_explicit_compound_dependencies_allow_partial_audits_but_wildcards_do_not():
+    goal = {"id": "all", "kind": "all", "fields": ["d.a", "d.b"], "op": "eq", "value": 1.}
+    records = numeric_pair([goal], {"d.a": 0., "d.b": 0., "d.c": 4.}, {"d.a": 1., "d.b": 1., "d.c": 4.})
+    for record in records:
+        record["audit"]["complete"] = False
+    assert decision_groups(records, CONFIG)["decision_eligible_groups"] == 1
+    for record in records:
+        record["goals"][0].pop("fields")
+        record["goals"][0]["field"] = "d.*"
+    built = decision_groups(records, CONFIG)
+    assert built["decision_eligible_groups"] == 0
+    assert built["mask_reasons"] == {"dynamic_goal_requires_complete_audit": 1}
+
+
+def test_expression_dependencies_are_bound_and_previous_state_is_fixed():
+    goal = {"id": "inc", "kind": "all", "fields": ["d.a", "d.b"], "op": "eq", "expr": "previous_value + 1"}
+    records = numeric_pair([goal], {"d.a": 0., "d.b": 0., "d.c": 4.}, {"d.a": 1., "d.b": 1., "d.c": 4.})
+    action = decision_groups(records, CONFIG)["groups"][0]["candidates"][0]
+    assert action["full_utility"] == pytest.approx(.99)
+    assert restricted_utility(action, ["d.a"]) == pytest.approx(-.01)
+    assert restricted_utility(action, ["d.a", "d.b"]) == pytest.approx(.99)
+    for record in records:
+        record["audit"]["complete"] = False
+    assert decision_groups(records, CONFIG)["decision_eligible_groups"] == 0
+
+
+@pytest.mark.parametrize("target", [{"expr": "field('d.b')"}, {"value": {"field": "d.b", "amount": 0}}])
+def test_changed_computed_target_is_a_dependency_even_when_root_field_is_unchanged(target):
+    goal = {"id": "target", "field": "d.a", "op": "eq", "protected": True, **target}
+    records = numeric_pair([goal], {"d.a": 1., "d.b": 1., "d.c": 4.}, {"d.a": 1., "d.b": 2., "d.c": 4.})
+    action = decision_groups(records, CONFIG)["groups"][0]["candidates"][0]
+    assert action["relevant_fields"] == ["d.b"]
+    assert restricted_utility(action, ["d.a"]) == pytest.approx(-.01)
+    assert restricted_utility(action, ["d.b"]) == pytest.approx(-6.01)
+
+
+@pytest.mark.parametrize("extra,reason", [({"expr": "field(key)"}, "unbound_expression"),
+                                         ({"where": [{"field": "d.b", "op": "eq", "value": 1.}]}, "unsupported_where")])
+def test_unbound_expression_and_unevaluated_where_are_explicitly_masked(extra, reason):
+    goal = {"id": "target", "field": "d.a", "op": "eq", "value": 1., **extra}
+    records = numeric_pair([goal], {"d.a": 0., "d.b": 1.}, {"d.a": 1., "d.b": 1.})
+    built = decision_groups(records, CONFIG)
+    assert built["decision_eligible_groups"] == 0
+    assert built["mask_reasons"] == {reason: 1}
+    assert built["decision_unsupported_groups"] == 1
+
+
+@pytest.mark.parametrize("selected,reason", [("d.a", "unknown_finite_difference"), ("d.c", "unknown_restricted_goal")])
+def test_unknown_compound_hybrid_or_toggle_masks_loss_group(selected, reason):
+    goal = {"id": "ratio", "field": "d.a", "op": "eq", "protected": True,
+            "expr": "1 / (field('d.b') + field('d.c'))"}
+    records = numeric_pair([goal], {"d.a": .5, "d.b": 1., "d.c": 1.},
+                           {"d.a": 1., "d.b": 2., "d.c": -1.}, {"d.a": 0., "d.b": 1., "d.c": 1.})
+    assert decision_groups(records, CONFIG)["decision_eligible_groups"] == 1
+    batch = Tensorizer(CONFIG).batch(records)
+    gate = torch.zeros_like(batch["numeric"], requires_grad=True)
+    hard = torch.zeros_like(gate)
+    hard[:, batch["metadata"][0]["keys"].index(selected)] = 1.
+    loss = goal_sufficiency_loss({"scope_gate": gate + hard}, batch, CONFIG)
+    assert loss["actual_label_loss_groups"] == 0
+    assert loss["compound_mask_reasons"] == {reason: 1}
+    loss["goal_sufficiency"].backward()
+    assert not gate.grad.any()
+
+
+@pytest.mark.parametrize("generic", [{"id": "submit", "kind": "complete"},
+                                      {"id": "answer", "kind": "answer", "field": "d.a"},
+                                      {"id": "submit", "field": "d.a", "op": "eq", "value": 1., "semantic_class": "submission"}])
+def test_generic_submission_goals_cannot_start_business_supervision(generic):
+    records = numeric_pair([generic], {"d.a": 0., "d.b": 4.}, {"d.a": 1., "d.b": 4.})
+    built = decision_groups(records, CONFIG)
+    assert built["decision_eligible_groups"] == built["goal_business_total"] == 0
+    assert built["decision_generic_only_groups"] == 1 and built["goal_generic_ignored"] == 2
+    evidence = goal_relevant_evidence(records[0], CONFIG)
+    assert not evidence["valid"] and evidence["reason"] == "no_business_goals"
+
+
+def test_mixed_business_and_generic_labels_ignore_unknown_submission():
+    goals = [{"id": "business", "field": "d.a", "op": "eq", "value": 1.},
+             {"id": "submit", "kind": "complete"}]
+    records = numeric_pair(goals, {"d.a": 0., "d.b": 4.}, {"d.a": 1., "d.b": 4.})
+    built = decision_groups(records, CONFIG)
+    assert built["decision_informative_groups"] == 1
+    assert built["groups"][0]["candidates"][0]["full_utility"] == pytest.approx(.99)
+
+
+def test_answer_with_expected_target_requires_audited_bound_answer_field():
+    goals = [{"id": "answer", "kind": "answer", "value": 2.}]
+    records = numeric_pair(goals, {"d.answer": 1., "d.b": 4.}, {"d.answer": 2., "d.b": 4.})
+    built = decision_groups(records, CONFIG)
+    assert built["decision_informative_groups"] == 1
+    for record in records:
+        record["audit"]["complete"] = False
+    assert decision_groups(records, CONFIG)["decision_eligible_groups"] == 0
+
+
+@pytest.mark.parametrize("kind,valid,keys", [("all", False, []), ("any", True, ["d.a", "d.b"])])
+def test_compound_protection_attribution_keeps_joint_cases_masked(kind, valid, keys):
+    goal = {"id": "protected", "kind": kind, "fields": ["d.a", "d.b"], "op": "eq", "value": 1., "protected": True}
+    record = numeric_pair([goal], {"d.a": 1., "d.b": 1., "d.c": 4.}, {"d.a": 0., "d.b": 0., "d.c": 4.})[0]
+    evidence = goal_relevant_evidence(record, CONFIG)
+    assert evidence["valid"] is valid and evidence["keys"] == keys
+    if not valid:
+        assert evidence["reason"] == "joint_protection_attribution"
+        assert evidence["joint_fields"] == ["d.a", "d.b"]
