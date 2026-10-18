@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -17,10 +18,14 @@ DEFAULTS: dict[str, Any] = {
         "temporal_layers": 2, "history": 8, "scope_budget": 128,
         "candidate_limit": 256, "feature_dim": 64, "value_slots": 64,
         "dropout": 0.1, "backbone": "blite", "learned_edges": True,
-        "temporal": True, "static_scope": False,
+        "temporal": True, "static_scope": False, "goal_sufficient": False,
     },
     "loss": {"scope": 1.0, "patch": 1.0, "goal": 1.0, "rollout": 1.0,
-             "boundary": 1.0, "escape": 1.0, "paired": 0.0},
+             "boundary": 1.0, "escape": 1.0, "paired": 0.0,
+             "goal_sufficiency": 0.0, "goal_relevant_escape": 0.0},
+    "goal_decision": {"temperature": 1.0, "progress_weight": 1.0,
+                      "damage_weight": 5.0, "cost_weight": 0.01,
+                      "protected_rule": "satisfied_and_effective_protected"},
     "train": {
         "epochs": 30, "micro_batch": 4, "grad_accum": 4,
         "learning_rate": 0.0003, "weight_decay": 0.01, "clip": 1.0,
@@ -42,7 +47,7 @@ DEFAULTS: dict[str, Any] = {
               "temperature": 0.7, "max_tokens": 2048, "timeout": 120,
               "cache_path": "data/repairscope/actor_candidates.json"},
     "controller": {"candidate_count": 4, "max_calls": 100, "max_steps": 50,
-                   "risk_threshold": 0.5, "damage_weight": 5.0,
+                   "risk_threshold": 0.5, "progress_weight": 1.0, "damage_weight": 5.0,
                    "cost_weight": 0.01, "escape_weight": 1.0,
                    "repair": True, "max_repairs": 3, "mc_samples": 4},
     "evaluation": {"task_ids": [], "split": "test_normal",
@@ -84,6 +89,36 @@ def merge(base: dict, patch: dict) -> dict:
     return out
 
 
+# Legacy variants keep their original objective even when selected from a v2 YAML.
+VARIANTS = {name: merge({"model": {"goal_sufficient": False},
+                         "loss": {"goal_sufficiency": 0.0,
+                                  "goal_relevant_escape": 0.0}}, patch)
+            for name, patch in VARIANTS.items()}
+_V2 = {"model": {"goal_sufficient": True},
+       "loss": {"goal_sufficiency": 1.0, "goal_relevant_escape": 1.0}}
+VARIANTS.update({
+    "goal_sufficient": deepcopy(_V2),
+    "no_goal_sufficiency": merge(_V2, {"loss": {"goal_sufficiency": 0.0}}),
+    "v2_no_boundary": merge(_V2, {"loss": {"boundary": 0.0}}),
+    "no_goal_relevant_escape": merge(_V2, {"loss": {"goal_relevant_escape": 0.0}}),
+    "v2_static_scope": merge(_V2, {"model": {"static_scope": True},
+                                   "loss": {"goal_sufficiency": 0.0}}),
+})
+
+_UTILITY_KEYS = ("progress_weight", "damage_weight", "cost_weight")
+
+
+def _resolve_goal_decision(config: dict, explicit: dict) -> None:
+    """One utility for training references and execution; support legacy configs."""
+    for key in _UTILITY_KEYS:
+        decision = explicit.get("goal_decision", {})
+        controller = explicit.get("controller", {})
+        if key in decision and key in controller and decision[key] != controller[key]:
+            raise ValueError(f"Conflicting goal_decision.{key} and controller.{key}")
+        value = decision.get(key, controller.get(key, config["goal_decision"][key]))
+        config["goal_decision"][key] = config["controller"][key] = value
+
+
 def _read(path: Path, visited: set[Path]) -> dict:
     path = path.expanduser().resolve()
     if path in visited:
@@ -101,12 +136,14 @@ def _read(path: Path, visited: set[Path]) -> dict:
 
 def load_config(path: str | Path | None = None, overrides: list[str] | None = None,
                 variant: str | None = None) -> dict:
-    config = merge(DEFAULTS, _read(Path(path), set()) if path else {})
+    explicit = _read(Path(path), set()) if path else {}
+    config = merge(DEFAULTS, explicit)
     selected = variant or config.get("variant", "full")
     if selected not in VARIANTS:
         raise ValueError(f"Unknown variant {selected!r}; choose {sorted(VARIANTS)}")
     config = merge(config, VARIANTS[selected])
     config["variant"] = selected
+    _resolve_goal_decision(config, explicit)
     for expression in overrides or []:
         key, separator, raw = expression.partition("=")
         if not separator or not key or any(not part for part in key.split(".")):
@@ -118,6 +155,9 @@ def load_config(path: str | Path | None = None, overrides: list[str] | None = No
                 raise ValueError(f"Unknown configuration section {key}")
             current = current[part]
         current[parts[-1]] = yaml.safe_load(raw)
+        if len(parts) == 2 and parts[0] in {"controller", "goal_decision"} and parts[1] in _UTILITY_KEYS:
+            other = "controller" if parts[0] == "goal_decision" else "goal_decision"
+            config[other][parts[1]] = current[parts[-1]]
     validate_config(config)
     return config
 
@@ -147,6 +187,21 @@ def validate_config(config: dict) -> None:
         raise ValueError("probing.epsilon must be in [0,1]")
     if config["probing"]["budget_calls"] < 0:
         raise ValueError("probing budget must be nonnegative")
+    if not isinstance(m["goal_sufficient"], bool):
+        raise ValueError("model.goal_sufficient must be bool")
+    decision = config["goal_decision"]
+    for key in (*_UTILITY_KEYS, "temperature"):
+        value = decision[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"goal_decision.{key} must be finite and nonnegative")
+    if decision["temperature"] == 0:
+        raise ValueError("goal_decision.temperature must be positive")
+    if decision["protected_rule"] != "satisfied_and_effective_protected":
+        raise ValueError("Unsupported goal_decision.protected_rule")
+    for key in ("goal_sufficiency", "goal_relevant_escape"):
+        value = config["loss"][key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"loss.{key} must be finite and nonnegative")
 
 
 def dump_config(config: dict, path: str | Path) -> None:

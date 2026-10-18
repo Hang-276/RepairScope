@@ -18,7 +18,8 @@ from collections import defaultdict
 from pathlib import Path
 
 from .actor import create_actor, normalize_action, public_goals, public_history, public_state
-from .control import BudgetExceeded, BudgetLedger, RepairController, evaluate_goals
+from .control import BudgetExceeded, BudgetLedger, RepairController, evaluate_goals, score_prediction
+from .schema import effective_protected
 
 
 def _mean(values):
@@ -83,17 +84,75 @@ def plan_cost(plan):
     return max(total, 1e-6)
 
 
-def candidate_statistics(plan, predict, damage_scale=1.0):
+def _plan_step(plan, condition=None):
+    """Use one logical prefix clock for planning, prediction, and branch labels.
+
+    Explicit condition/plan steps override inferred prefixes. Condition setup
+    receipts do not silently advance this clock: offline collection likewise
+    labels its target by the original prefix length.
+    """
+    condition = condition or {}
+    step = condition.get("step", plan.get("step"))
+    if step is None:
+        history = condition.get("history", plan.get("history", []))
+        step = max(len(plan.get("prefix", [])), len(history))
+    if type(step) is not int or step < 0:
+        raise ValueError("Counterfactual plan step must be a nonnegative integer")
+    return step
+
+
+def _decision_hypothesis_disagreement(inputs, predictions, goals, step, config):
+    """Rank the same action/reference candidates under same-checkpoint MC draws."""
+    winner_disagreements, ranking_uncertainties = [], []
+    for offset in range(0, len(inputs), 2):
+        pair = predictions[offset:offset + 2]
+        if len(pair) != 2:
+            continue
+        count = min(len(prediction.get("mc_predictions", [])) for prediction in pair)
+        if count < 2:
+            continue
+        margins, winners = [], []
+        for draw in range(count):
+            scores = [float(score_prediction(inputs[offset + index][0],
+                prediction["mc_predictions"][draw], goals, inputs[offset + index][1],
+                step[offset + index] if isinstance(step, (list, tuple)) else step,
+                config)["score"]) for index, prediction in enumerate(pair)]
+            margins.append(scores[0] - scores[1])
+            winners.append(int(scores[1] > scores[0]))
+        frequency = max(winners.count(0), winners.count(1)) / count
+        winner_disagreements.append(2 * (1 - frequency))
+        spread = math.sqrt(_variance(margins))
+        ranking_uncertainties.append(spread / (abs(_mean(margins)) + spread + 1e-6))
+    return _bound(_mean(winner_disagreements)), _bound(_mean(ranking_uncertainties))
+
+
+def candidate_statistics(plan, predict, damage_scale=1.0, config=None):
+    config = config or {}
     goals = public_goals(plan.get("goals", []))
-    states = [public_state(c["state"]) for c in plan.get("conditions", [])] or [public_state(plan["state"])]
+    conditions = plan.get("conditions") or [{"state": plan["state"]}]
+    states = [public_state(condition["state"]) for condition in conditions]
     inputs = [(state, action) for state in states for action in (plan["action"], plan["reference"])]
-    predictions = [predict({"state": state, "action": normalize_action(action),
-                           "history": public_history(plan.get("history", [])), "goals": goals}) for state, action in inputs]
+    predictions, input_steps = [], []
+    for index, (state, action) in enumerate(inputs):
+        condition = conditions[index // 2]
+        request = {"state": state, "action": normalize_action(action),
+                   "history": public_history(condition.get("history", plan.get("history", []))), "goals": goals}
+        request["step"] = _plan_step(plan, condition)
+        input_steps.append(request["step"])
+        predictions.append(predict(request))
+    goal_sufficient = bool(config.get("model", {}).get("goal_sufficient", False) or
+                           any("goal_escape" in prediction for prediction in predictions))
+    def risk_probability(prediction):
+        return prediction.get("goal_escape", prediction.get("escape", 0)) if goal_sufficient else prediction.get("escape", 0)
     uncertainty = _mean([max(_bound(p.get("uncertainty", 0)),
                             _typed_hypothesis_disagreement(p.get("mc_predictions", [])),
-                            4 * _variance([float(h.get("escape", 0)) for h in p.get("mc_predictions", [])]))
+                            4 * _variance([float(risk_probability(h)) for h in p.get("mc_predictions", [])]))
                          for p in predictions])
-    risk = max(_bound(p.get("escape", 0)) for p in predictions)
+    risk = max(_bound(risk_probability(p)) for p in predictions)
+    decision_disagreement, ranking_uncertainty = (0.0, 0.0)
+    if goal_sufficient:
+        decision_disagreement, ranking_uncertainty = _decision_hypothesis_disagreement(
+            inputs, predictions, goals, input_steps, config.get("controller", {}))
     # Competing hypotheses are dropout forwards of this very same checkpoint.
     disagreement = []
     for prediction in predictions:
@@ -109,11 +168,13 @@ def candidate_statistics(plan, predict, damage_scale=1.0):
     damage = 0.0
     weight_sum = 0.0
     for i, goal in enumerate(goals):
-        if goal.get("protected"):
+        active = [effective_protected(goal, step, True) if goal_sufficient else bool(goal.get("protected"))
+                  for step in input_steps]
+        if any(active):
             weight = float(goal.get("weight", 1))
             weight_sum += weight
-            for (state, _), prediction in zip(inputs, predictions):
-                if evaluate_goals(state, goals)[i] is not True:
+            for (state, _), prediction, enabled in zip(inputs, predictions, active):
+                if not enabled or evaluate_goals(state, goals)[i] is not True:
                     continue
                 after = evaluate_goals(prediction.get("next_state", {}), goals)
                 probs = prediction.get("goal_probabilities", [])
@@ -121,9 +182,16 @@ def candidate_statistics(plan, predict, damage_scale=1.0):
                 # An omitted protected field remains at risk even if the hard patch is unchanged.
                 scope_prob = float(prediction.get("scope_probabilities", {}).get(goal.get("field"), 0))
                 damage += weight * max(possibility, risk * (1 - scope_prob)) / len(predictions)
-    return {"U": _bound(0.5 * uncertainty + 0.5 * risk), "D": _bound(_mean(disagreement)),
-            "R": _bound(damage / max(weight_sum * float(damage_scale), 1e-6)),
-            "C": plan_cost(plan), "predictions": predictions}
+    result = {"U": _bound(0.5 * uncertainty + 0.5 * risk), "D": _bound(_mean(disagreement)),
+              "R": _bound(damage / max(weight_sum * float(damage_scale), 1e-6)),
+              "C": plan_cost(plan), "predictions": predictions}
+    if goal_sufficient:
+        result.update({"D": max(result["D"], decision_disagreement, ranking_uncertainty),
+                       "R": max(result["R"], risk * max(decision_disagreement, ranking_uncertainty)),
+                       "goal_decision_risk": risk, "decision_disagreement": decision_disagreement,
+                       "ranking_uncertainty": ranking_uncertainty,
+                       "risk_semantics": "goal_escape_when_available_else_state_escape"})
+    return result
 
 
 def selection_probabilities(statistics, strategy="risk", epsilon=0.1, novelty_counts=None):
@@ -248,12 +316,14 @@ def _branch_records(env, plan, predictor, ledger, selection_id):
             prefix = copy.deepcopy(plan.get("prefix", []))
             branch_history = copy.deepcopy((condition or {}).get("history", plan.get("history", [])))
             action = normalize_action(plan[role])
+            base_step = _plan_step(plan, condition)
             for continuation_index, target in enumerate([action] + plan.get("continuation", [])):
                 call_condition = condition if continuation_index == 0 else None
                 # The public prediction is committed before receiving any branch labels.
                 before = public_state((condition or {}).get("state", plan["state"])) if continuation_index == 0 else public_state(result["state"])
                 prediction = predictor({"state": before, "action": target,
-                    "history": public_history(branch_history), "goals": public_goals(plan.get("goals", []))})
+                    "history": public_history(branch_history), "goals": public_goals(plan.get("goals", [])),
+                    "step": base_step + continuation_index})
                 prediction_time = time.monotonic()
                 expected = sum(float(e.get("action", e).get("cost", 1)) for e in prefix) + float(target.get("cost", 1))
                 if call_condition:
@@ -293,7 +363,7 @@ def _branch_records(env, plan, predictor, ledger, selection_id):
                 record = {"task_id": str(plan["task_id"]), "source_task_id": str(plan["task_id"]),
                     "group_id": str(plan.get("group_id", plan["task_id"])), "split": "train", "source_split": "train",
                     "evidence_origin": result.get("evidence_origin", getattr(env, "evidence_origin", "unknown")),
-                    "step": continuation_index, "trajectory_id": f"{selection_id}-{c_index}-{role}",
+                    "step": base_step + continuation_index, "trajectory_id": f"{selection_id}-{c_index}-{role}",
                     "state": state, "action": target, "next_state": result["state"],
                     "history": public_history(branch_history), "goals": goals,
                     "goal_before": evaluate_goals(state, goals), "goal_after": evaluate_goals(result["state"], goals),
@@ -538,7 +608,7 @@ def run_probing(config, checkpoint, output_dir):
                 if not disabled:
                     stop = "budget" if ledger.remaining <= 1e-9 else "pool_unaffordable"
                 break
-            statistics = [candidate_statistics(plan, predict, options.get("damage_scale", 1)) for plan in affordable]
+            statistics = [candidate_statistics(plan, predict, options.get("damage_scale", 1), online_config) for plan in affordable]
             probabilities = selection_probabilities(statistics, options.get("strategy", "risk"), float(options.get("epsilon", .1)),
                 [novelty[str(plan.get("id", plan["task_id"]))] for plan in affordable])
             index = rng.choices(range(len(affordable)), probabilities)[0]

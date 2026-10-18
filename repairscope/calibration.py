@@ -14,8 +14,8 @@ def calibrate_threshold(predictions: str | Path, checkpoint: str | Path,
                         risk_source: str = "escape") -> dict:
     if not 0 <= max_check_rate <= 1:
         raise ValueError("max_check_rate must be in [0,1]")
-    if risk_source not in {"escape", "uncertainty"}:
-        raise ValueError("risk_source must be escape or uncertainty")
+    if risk_source not in {"escape", "goal_escape", "uncertainty"}:
+        raise ValueError("risk_source must be escape, goal_escape or uncertainty")
     checkpoint_hash = file_digest(checkpoint)
     values = []
     with Path(predictions).open(encoding="utf-8") as stream:
@@ -32,9 +32,15 @@ def calibrate_threshold(predictions: str | Path, checkpoint: str | Path,
             if row["checkpoint_id"] != checkpoint_hash:
                 raise ValueError("Dev predictions and checkpoint have different hashes")
             prediction, audit = row["prediction"], row["label_receipt"]
-            missed = bool(set(audit["changes"]) - set(prediction["scope"]))
-            if not missed and not audit["complete"]:
-                continue  # A partial audit without a positive is unknown.
+            if risk_source == "goal_escape":
+                label = audit.get("goal_escape_label")
+                if label is None:
+                    continue
+                missed = bool(label)
+            else:
+                missed = bool(set(audit["changes"]) - set(prediction["scope"]))
+                if not missed and not audit["complete"]:
+                    continue  # A partial audit without a positive is unknown.
             probability = float(prediction[risk_source])
             if not math.isfinite(probability) or probability < 0:
                 raise ValueError("Risk scores must be finite and nonnegative")
@@ -83,7 +89,7 @@ def apply_calibration(config: dict, checkpoint: str | Path | None) -> dict:
         raise ValueError("Only a dev-only frozen threshold receipt is accepted")
     if value.get("checkpoint_sha256") != file_digest(checkpoint):
         raise ValueError("Calibration receipt does not belong to this checkpoint")
-    expected_source = "escape" if float(config.get("controller", {}).get("escape_weight", 1)) > 0 else "uncertainty"
+    expected_source = calibration_source(config)
     if value.get("risk_source") != expected_source:
         raise ValueError("Calibration risk source does not match the deployed controller")
     threshold = float(value["risk_threshold"])
@@ -92,3 +98,11 @@ def apply_calibration(config: dict, checkpoint: str | Path | None) -> dict:
     config.setdefault("controller", {})["risk_threshold"] = threshold
     config["controller"]["calibration_receipt"] = value
     return config
+
+
+def calibration_source(config):
+    if float(config.get("controller", {}).get("escape_weight", 1)) <= 0:
+        return "uncertainty"
+    if config.get("model", {}).get("goal_sufficient", False) and float(config.get("loss", {}).get("goal_relevant_escape", 0)) > 0:
+        return "goal_escape"
+    return "escape"

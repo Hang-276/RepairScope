@@ -1,0 +1,2 @@
+base: goal_sufficient.yaml
+variant: no_goal_sufficiency

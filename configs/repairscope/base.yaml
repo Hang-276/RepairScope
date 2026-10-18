@@ -15,6 +15,13 @@ model:
   learned_edges: true
   temporal: true
   static_scope: false
+  goal_sufficient: false
+loss:
+  goal_sufficiency: 0.0
+  goal_relevant_escape: 0.0
+goal_decision:
+  temperature: 1.0
+  protected_rule: satisfied_and_effective_protected
 train:
   epochs: 30
   micro_batch: 4

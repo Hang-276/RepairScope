@@ -276,10 +276,14 @@ class Tensorizer:
                                 break
             visible_goals = evaluate_goals(record.get("state", {"fields": []}), record.get("goals", []))
             for gi, goal in enumerate(record.get("goals", [])):
+                if self.config.get("model", {}).get("goal_sufficient", False):
+                    public_predicate = {"predicate": goal, "protection_interval_active": effective_protected(goal, int(record.get("step", 0)), True)}
+                    tensors["goal_features"][i, gi] = torch.tensor(fingerprint(public_predicate, f))
                 if goal.get("field") in index:
                     j = index[goal["field"]]
                     tensors["goal_field"][i, gi] = j
-                    tensors["goal_features"][i, gi] = torch.tensor(fingerprint(goal, f))
+                    if not self.config.get("model", {}).get("goal_sufficient", False):
+                        tensors["goal_features"][i, gi] = torch.tensor(fingerprint(goal, f))
                     tensors["goal_mask"][i, gi] = True
                     tensors["goal_priority"][i, j] += float(goal.get("weight", 1)) * (2.0 if effective_protected(goal, int(record.get("step", 0)), visible_goals[gi]) else 1.0)
                 before = record.get("goal_before", [])

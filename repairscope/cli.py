@@ -238,8 +238,8 @@ def run(args: argparse.Namespace) -> Any:
         validate_dataset(records, allow_synthetic=config["data"]["allow_synthetic"])
         result = evaluate_predictions(config, args.checkpoint, records, out)
     elif args.command == "calibrate":
-        from .calibration import calibrate_threshold
-        source = "escape" if float(config["controller"].get("escape_weight", 1)) > 0 else "uncertainty"
+        from .calibration import calibrate_threshold, calibration_source
+        source = calibration_source(config)
         result = calibrate_threshold(args.predictions, args.checkpoint, out / "calibration.json",
                                      args.max_check_rate, source)
     elif args.command == "probe":

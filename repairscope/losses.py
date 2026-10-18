@@ -18,6 +18,8 @@ def masked_mean(value: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
 def transition_losses(output: dict, batch: dict, config: dict) -> dict:
     weights = config.get("loss", {})
     mask = batch["audit_mask"] & batch["mask"]
+    # Coverage remains an auxiliary prior. The v2 decision objective supplies
+    # additional, direct budget-competitive gradients to this same selector.
     scope = F.binary_cross_entropy_with_logits(output["scope_logits"], batch["target_changed"], reduction="none", pos_weight=torch.tensor(float(weights.get("scope_positive_weight", 2.0)), device=mask.device))
     scope_loss = masked_mean(scope, mask)
     # Every auditable field supervises the inexpensive heads, while the applied
@@ -47,8 +49,33 @@ def transition_losses(output: dict, batch: dict, config: dict) -> dict:
     null_loss = masked_mean(F.binary_cross_entropy_with_logits(output["null_logits"], batch["target_null"], reduction="none"), mask & batch["nullable"] & (batch["target_exists"] > 0))
     patch_loss = op_loss + number_loss + copy_loss + null_loss
     step = float(weights.get("scope", 1)) * scope_loss + float(weights.get("patch", 1)) * patch_loss + float(weights.get("goal", 1)) * goal_loss
+    goal_escape, goal_escape_count, goal_escape_positive = goal_escape_loss(output, batch, config) if float(weights.get("goal_relevant_escape", 0)) > 0 else (output["scope_logits"].sum() * 0, 0, 0)
     return {"step": step, "scope": scope_loss, "patch": patch_loss, "goal": goal_loss, "escape": escape_loss,
+            "goal_relevant_escape": goal_escape, "goal_escape_valid": goal_escape_count, "goal_escape_positive": goal_escape_positive,
             "op": op_loss, "number": number_loss, "copy": copy_loss}
+
+
+def goal_escape_loss(output, batch, config):
+    """Reliable goal damage outside scope; an unknown remainder masks negatives."""
+    from .decision import goal_relevant_evidence
+    losses, count, positives = [], 0, 0
+    for i, record in enumerate(batch["records"]):
+        evidence = goal_relevant_evidence(record, config)
+        keys = set(evidence.get("observed_positive_keys", evidence.get("keys", [])))
+        for scope, logit in ((set(record.get("scope", [])), output["recorded_goal_escape_logits"][i]),
+                             ({key for j, key in enumerate(batch["metadata"][i]["keys"]) if bool(output["scope"][i, j])}, output["goal_escape_logits"][i])):
+            escaped = bool(keys - scope)
+            if escaped or evidence["valid"]:
+                count += 1
+                positives += int(escaped)
+                losses.append(F.binary_cross_entropy_with_logits(logit, logit.new_tensor(float(escaped))))
+        selected = {key for j, key in enumerate(batch["metadata"][i]["keys"]) if bool(output["scope"][i, j])}
+        escaped = bool(keys - selected)
+        if escaped or evidence["valid"]:
+            p = output["goal_expansion"][i].clamp(1e-6, 1-1e-6)
+            losses.append(F.binary_cross_entropy(p, p.new_tensor(float(escaped))))
+    zero = output["scope_logits"].sum() * 0
+    return torch.stack(losses).mean() if losses else zero, count, positives
 
 
 def rollout_state_loss(output: dict, batch: dict) -> torch.Tensor:

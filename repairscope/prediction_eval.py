@@ -19,6 +19,7 @@ import torch
 
 from .actor import public_goals, public_history, public_state
 from .data import make_windows, validate_dataset
+from .control import score_prediction
 from .metrics import calibration
 from .schema import effective_protected, evaluate_goals, field_map
 from .model import predict_record
@@ -76,9 +77,28 @@ def _goal_labels(record: dict, goals: list[dict], which: str) -> list[bool | Non
     return [supplied.get(goal['id'], fallback[i]) for i, goal in enumerate(goals)]
 
 
+def goal_escape_label(record: dict, scope: Iterable[str], config: dict) -> int | None:
+    """A verified omitted positive proves escape; only complete evidence proves 0."""
+    from .decision import goal_relevant_evidence
+    evidence = goal_relevant_evidence(record, config)
+    selected = set(scope)
+    if set(evidence.get('observed_positive_keys', evidence.get('keys', []))) - selected:
+        return 1
+    if evidence['valid']:
+        return int(bool(set(evidence['keys']) - selected))
+    return None
+
+
 class _Accumulator:
     """Compact counts; full audited states are never retained between windows."""
-    def __init__(self):
+    def __init__(self, config=None):
+        self.config = config or {}
+        self.goal_sufficient = bool(self.config.get('evaluation', {}).get('goal_sufficient_metrics', True))
+        self.goal_relevant_fields = self.goal_relevant_covered = 0
+        self.goal_relevant_rows = self.goal_relevant_escaped = self.goal_relevant_escape_rows = 0
+        self.goal_relevant_mask_reasons: dict[str, int] = defaultdict(int)
+        self.goal_relevant_probabilities: list[float] = []
+        self.goal_relevant_targets: list[int] = []
         self.rows = self.changed = self.covered = self.zero_change = 0
         self.escape_n = self.escaped = self.scope_size = 0
         self.probabilities: list[float] = []
@@ -96,6 +116,24 @@ class _Accumulator:
         audit = record['audit']
         selected = set(prediction.get('scope', []))
         changed = set(audit['changes'])
+        if self.goal_sufficient:
+            from .decision import goal_relevant_evidence
+            evidence = goal_relevant_evidence(record, self.config)
+            if evidence['valid']:
+                relevant = set(evidence['keys'])
+                self.goal_relevant_rows += 1
+                self.goal_relevant_fields += len(relevant)
+                self.goal_relevant_covered += len(relevant & selected)
+            else:
+                self.goal_relevant_mask_reasons[str(evidence.get('reason', 'unknown'))] += 1
+            goal_escaped = goal_escape_label(record, selected, self.config)
+            if goal_escaped is not None:
+                self.goal_relevant_escape_rows += 1
+                self.goal_relevant_escaped += goal_escaped
+                probability = prediction.get('goal_escape')
+                if probability is not None and math.isfinite(float(probability)):
+                    self.goal_relevant_probabilities.append(float(probability))
+                    self.goal_relevant_targets.append(goal_escaped)
         self.scope_size += len(selected)
         self.changed += len(changed)
         self.covered += len(changed & selected)
@@ -163,7 +201,7 @@ class _Accumulator:
             scores.append(2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else 0.)
         def ratio(a, b):
             return a / b if b else None
-        return {
+        result = {
             'transitions': self.rows,
             'scope_recall_at_budget': ratio(self.covered, self.changed),
             'scope_changed_fields': self.changed, 'scope_covered_fields': self.covered,
@@ -185,6 +223,151 @@ class _Accumulator:
                 'by_kind': {kind: {'accuracy': ratio(correct, count), 'n': count} for kind, (correct, count) in sorted(self.kinds.items())},
             },
         }
+        if self.goal_sufficient:
+            result.update({
+                'goal_relevant_recall_at_budget': ratio(self.goal_relevant_covered, self.goal_relevant_fields),
+                'goal_relevant_fields': self.goal_relevant_fields,
+                'goal_relevant_covered_fields': self.goal_relevant_covered,
+                'goal_relevant_escape_rate': ratio(self.goal_relevant_escaped, self.goal_relevant_escape_rows),
+                'goal_relevant_escape_steps': self.goal_relevant_escaped,
+                'goal_relevant_escape_evaluable_steps': self.goal_relevant_escape_rows,
+                'goal_relevant_escape_label_coverage': ratio(self.goal_relevant_escape_rows, self.rows),
+                'goal_relevant_escape_masked_steps': self.rows - self.goal_relevant_escape_rows,
+                'goal_relevant_label_coverage': ratio(self.goal_relevant_rows, self.rows),
+                'goal_relevant_labeled_steps': self.goal_relevant_rows,
+                'goal_relevant_masked_steps': self.rows - self.goal_relevant_rows,
+                'goal_relevant_mask_reasons': dict(sorted(self.goal_relevant_mask_reasons.items())),
+                'goal_relevant_escape_calibration': calibration(self.goal_relevant_probabilities, self.goal_relevant_targets),
+            })
+        return result
+
+
+def _public_prediction_input(record: dict, history_limit: int) -> dict:
+    """One recorded decision input; audit and future labels cannot enter it."""
+    result = {'state': public_state(deepcopy(record['state'])),
+              'action': deepcopy(record['action']),
+              'history': public_history(deepcopy(record['history']), limit=history_limit),
+              'goals': public_goals(deepcopy(record['goals'])), 'step': int(record['step'])}
+    if record.get('public_schema') is not None:
+        result['public_schema'] = deepcopy(record['public_schema'])
+    return result
+
+
+def _decision_metrics(records: list[dict], predictions: dict[int, dict], config: dict) -> dict:
+    """Deployed-controller total regret against fully labeled offline CF utility.
+
+    Selection includes learned dynamics, goal/risk heads, uncertainty and action
+    costs. This is not an estimate of scope-only causal omission loss.
+    The separate oracle-patch diagnostic isolates scope omission. Its choices do
+    not use Predictor dynamics and must never be reported as prediction regret.
+    """
+    from .decision import decision_groups
+    grouping = decision_groups(records, config)
+    total = int(grouping.get('decision_groups', len(grouping['groups'])))
+    comparable = positive = preserved = protection = 0
+    regret = reference_sum = selected_sum = diagnostic_regret = 0.0
+    excluded: dict[str, int] = defaultdict(int)
+    for group in grouping['groups']:
+        candidates = group.get('candidates', [])
+        if not group.get('eligible', True):
+            excluded[str(group.get('reason', 'masked_labels'))] += 1
+            continue
+        if (len(candidates) != 2 or {candidate.get('role') for candidate in candidates} != {'action', 'reference'}
+                or any(candidate['index'] not in predictions for candidate in candidates)):
+            excluded['incomplete_candidate_predictions'] += 1
+            continue
+        scores = []
+        diagnostic_scores = []
+        for candidate in candidates:
+            index = candidate['index']
+            record, prediction = records[index], predictions[index]
+            scores.append(float(score_prediction(public_state(record['state']), prediction,
+                public_goals(record['goals']), record['action'], int(record['step']), config.get('controller', {}))['score']))
+            diagnostic_scores.append(float(candidate['baseline']) + sum(float(value)
+                for key, value in candidate['contributions'].items() if key in set(prediction.get('scope', []))))
+        utilities = [float(candidate['full_utility']) for candidate in candidates]
+        if not all(math.isfinite(value) for value in scores + utilities + diagnostic_scores):
+            excluded['nonfinite_candidate_score'] += 1
+            continue
+        chosen = max(range(len(candidates)), key=lambda index: scores[index])
+        isolated = max(range(len(candidates)), key=lambda index: diagnostic_scores[index])
+        reference = max(utilities)
+        difference = max(0.0, reference - utilities[chosen])
+        regret += difference
+        positive += int(difference > 1e-12)
+        diagnostic_regret += max(0.0, reference - utilities[isolated])
+        selected_sum += utilities[chosen]
+        reference_sum += reference
+        comparable += 1
+        record = records[candidates[chosen]['index']]
+        before = _goal_labels(record, record['goals'], 'before')
+        after = _goal_labels(record, record['goals'], 'after')
+        for goal, left, right in zip(record['goals'], before, after):
+            if left is True and effective_protected(goal, int(record['step']), left) and right is not None:
+                protection += 1
+                preserved += int(right is True)
+    def ratio(numerator, denominator):
+        return numerator / denominator if denominator else None
+    return {
+        'decision_regret': ratio(regret, comparable), 'decision_regret_numerator': regret,
+        'decision_regret_denominator': comparable, 'decision_regret_positive_groups': positive,
+        'decision_regret_coverage': ratio(comparable, total), 'decision_regret_coverage_numerator': comparable,
+        'decision_regret_coverage_denominator': total, 'decision_excluded_groups': dict(sorted(excluded.items())),
+        'decision_reference_utility_sum': reference_sum, 'decision_selected_utility_sum': selected_sum,
+        'decision_selection': 'predict_record then control.score_prediction over the same legal labeled candidate group',
+        'decision_regret_semantics': 'deployed-controller total regret: selected action includes learned dynamics, risk, uncertainty, scope and action cost penalties; not scope-only causal loss',
+        'decision_reference': 'maximum fully observed goal-decision utility in the same prefix/condition action-reference group',
+        'scope_isolation_oracle_patch_diagnostic': {
+            'mean_regret': ratio(diagnostic_regret, comparable), 'regret_sum': diagnostic_regret,
+            'groups': comparable, 'is_prediction_regret': False,
+        },
+        'selected_goal_preservation_rate': ratio(preserved, protection),
+        'selected_protected_goals_preserved': preserved, 'selected_protected_goals_evaluable': protection,
+        'label_group_coverage': {key: value for key, value in grouping.items() if key != 'groups'},
+    }
+
+
+def _budget_curve(config, model, tensorizer, records, device, history_limit, checkpoint_id):
+    budgets = config.get('evaluation', {}).get('scope_budgets')
+    if budgets is None:
+        return {'status': 'disabled', 'points': [], 'environment_executions': 0}
+    if not isinstance(budgets, (list, tuple)) or not budgets or any(type(b) is not int or b < 1 for b in budgets):
+        raise ValueError('evaluation.scope_budgets must be a nonempty list of positive integers')
+    candidate_limit = int(getattr(tensorizer, 'candidate_limit', config.get('model', {}).get('candidate_limit', 256)))
+    if any(budget > candidate_limit for budget in budgets):
+        raise ValueError('evaluation.scope_budgets cannot exceed the fixed candidate_limit')
+    held_out = [record for record in records if record['split'] == 'dev']
+    curve = {'status': 'evaluated' if held_out else 'no_dev_records', 'points': [],
+             'checkpoint_id': checkpoint_id, 'candidate_limit': candidate_limit,
+             'candidate_limit_fixed': True, 'recorded_only': True, 'environment_executions': 0,
+             'optimizer_updates': 0, 'split': 'dev', 'records': len(held_out),
+             'cost_axis': 'selected field count; offline prediction calls are reported separately',
+             'claim_boundary': 'Recorded candidate decisions, not live AppWorld task success or inspection cost.'}
+    original_budget = getattr(model, 'scope_budget', None)
+    try:
+        for budget in dict.fromkeys(budgets):
+            model.scope_budget = budget
+            accumulator, predictions = _Accumulator(config), {}
+            for index, record in enumerate(held_out):
+                inputs = _public_prediction_input(record, history_limit)
+                prediction = predict_record(model, tensorizer, inputs, device=device,
+                    mc_samples=int(config.get('controller', {}).get('mc_samples', 0)))
+                predictions[index] = prediction
+                keys = set(field_map(inputs['state']))
+                schema = inputs.get('public_schema')
+                if schema is not None:
+                    keys.update(field['key'] for field in (schema.get('fields', []) if isinstance(schema, dict) else schema))
+                accumulator.add(record, prediction, inputs['state'], inputs['goals'],
+                    _goal_labels(record, inputs['goals'], 'before'), keys)
+            curve['points'].append({'scope_budget': budget, 'prediction_calls': len(held_out),
+                                    'metrics': accumulator.result(),
+                                    'decision': _decision_metrics(held_out, predictions, config)})
+    finally:
+        if original_budget is None:
+            delattr(model, 'scope_budget')
+        else:
+            model.scope_budget = original_budget
+    return curve
 
 
 def evaluate_predictions(config: dict[str, Any], checkpoint: str | Path, records: Iterable[dict[str, Any]], output_dir: str | Path, horizons=(1, 2, 4)) -> dict[str, Any]:
@@ -212,6 +395,8 @@ def evaluate_predictions(config: dict[str, Any], checkpoint: str | Path, records
         raise ValueError('A synthetic/fixture checkpoint cannot produce real AppWorld prediction-evaluation results')
     checkpoint_sha256 = _checkpoint_digest(checkpoint)
     checkpoint_verified = bool(checkpoint_sha256) and bool(origins) and not synthetic_checkpoint and all(origin == 'appworld' for origin in origins)
+    metric_config = deepcopy(config)
+    metric_config.setdefault('model', {}).setdefault('goal_sufficient', bool(getattr(model, 'goal_sufficient', saved_config.get('model', {}).get('goal_sufficient', False))))
     history_limit = int(getattr(tensorizer, 'history', saved_config.get('model', {}).get('history', 8)))
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -230,12 +415,13 @@ def evaluate_predictions(config: dict[str, Any], checkpoint: str | Path, records
         'horizons': {}, 'predictions_path': str((output / 'predictions.jsonl').resolve()),
     }
     row_count = 0
+    direct_predictions = {}
     partial = output / 'predictions.jsonl.partial'
     with partial.open('w', encoding='utf-8') as stream:
         for horizon in horizons:
             windows = make_windows(records, horizon)
-            per_step = [_Accumulator() for _ in range(horizon)]
-            all_steps, final = _Accumulator(), _Accumulator()
+            per_step = [_Accumulator(metric_config) for _ in range(horizon)]
+            all_steps, final = _Accumulator(metric_config), _Accumulator(metric_config)
             for window_number, window in enumerate(windows):
                 start = window[0]
                 state = public_state(deepcopy(start['state']))
@@ -256,6 +442,8 @@ def evaluate_predictions(config: dict[str, Any], checkpoint: str | Path, records
                         prediction_input['public_schema'] = deepcopy(schema)
                     prediction = predict_record(model, tensorizer, prediction_input, device=device,
                                                 mc_samples=int(config.get('controller', {}).get('mc_samples', 0)))
+                    if horizon == 1:
+                        direct_predictions[indexes[_digest(truth_record)]] = prediction
                     before_goal_vector = _goal_labels(truth_record, goals, 'before')
                     per_step[offset].add(truth_record, prediction, state, goals, before_goal_vector, public_keys)
                     all_steps.add(truth_record, prediction, state, goals, before_goal_vector, public_keys)
@@ -272,6 +460,8 @@ def evaluate_predictions(config: dict[str, Any], checkpoint: str | Path, records
                                           'changes': truth_record['audit']['changes'],
                                           'truth_next_sha256': _digest(truth_record.get('audit_next_state') or truth_record['next_state'])},
                     }
+                    if metric_config.get('evaluation', {}).get('goal_sufficient_metrics', True):
+                        event['label_receipt']['goal_escape_label'] = goal_escape_label(truth_record, prediction.get('scope', []), metric_config)
                     stream.write(json.dumps(event, ensure_ascii=False, allow_nan=False, sort_keys=True) + '\n')
                     row_count += 1
                     history = (history + [{'state': deepcopy(state), 'action': action}])[-history_limit:]
@@ -283,6 +473,19 @@ def evaluate_predictions(config: dict[str, Any], checkpoint: str | Path, records
             }
     partial.replace(output / 'predictions.jsonl')
     summary['prediction_rows'] = row_count
+    if metric_config.get('evaluation', {}).get('goal_sufficient_metrics', True):
+        from .decision import decision_groups
+        for group in decision_groups(records, metric_config)['groups']:
+            if group.get('eligible', True):
+                for candidate in group.get('candidates', []):
+                    index = candidate['index']
+                    if index not in direct_predictions:
+                        direct_predictions[index] = predict_record(model, tensorizer,
+                            _public_prediction_input(records[index], history_limit), device=device,
+                            mc_samples=int(config.get('controller', {}).get('mc_samples', 0)))
+        summary['goal_sufficient_decision'] = _decision_metrics(records, direct_predictions, metric_config)
+        summary['goal_preservation_cost_curve'] = _budget_curve(metric_config, model, tensorizer,
+            records, device, history_limit, checkpoint_id)
     temporary = output / 'summary.json.tmp'
     temporary.write_text(json.dumps(summary, ensure_ascii=False, allow_nan=False, sort_keys=True, indent=2) + '\n', encoding='utf-8')
     temporary.replace(output / 'summary.json')

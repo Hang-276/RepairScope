@@ -18,6 +18,7 @@ import numpy as np
 import torch
 
 from .losses import counterfactual_losses, rollout_state_loss, transition_losses
+from .decision import scope_supervision_audit, goal_sufficiency_loss
 from .model import Predictor
 from .tensorizer import Tensorizer, canonical, to_device
 
@@ -142,10 +143,12 @@ def _loss_for_windows(model, tensorizer, windows, config, device, auxiliary):
     output = model(initial)
     components = transition_losses(output, initial, config)
     counter = counterfactual_losses(output, initial, config)
+    decision = goal_sufficiency_loss(output, initial, config)
     weights = config["loss"]
     total = components["step"]
     roll_losses = [rollout_state_loss(output, initial)]
     escapes = [components["escape"]]
+    goal_escapes = [components["goal_relevant_escape"]]
     boundaries, paired = [counter["boundary"]], [counter["paired"]]
     horizon = max(len(window) for window in windows) if float(weights.get("rollout", 1)) else 1
     state, history = output["soft_state"], output["next_history"]
@@ -156,7 +159,7 @@ def _loss_for_windows(model, tensorizer, windows, config, device, auxiliary):
         later_records = [window[step] if step < len(window) else window[-1] for window in windows]
         safe_later_records = [{**later, "state": records[i].get("state", {}), "history": records[i].get("history", []), "goals": records[i].get("goals", [])} for i, later in enumerate(later_records)]
         target_batch = to_device(tensorizer.batch(safe_later_records, template=initial["metadata"]), device)
-        for key in ("features", "kind", "mask", "nullable", "slot_mask", "slot_features", "static_edges", "goal_priority", "goal_field", "goal_features", "goal_mask", "history_values", "history_numeric", "history_known", "history_exists", "history_null", "history_action", "history_mask"):
+        for key in ("features", "kind", "mask", "nullable", "slot_mask", "slot_features", "static_edges", "goal_priority", "goal_field", "goal_mask", "history_values", "history_numeric", "history_known", "history_exists", "history_null", "history_action", "history_mask"):
             target_batch[key] = initial[key]
         # Dynamic static-prior scoring for the new action uses the initial public
         # schema, not a future true state. No future field keys can be introduced.
@@ -170,16 +173,22 @@ def _loss_for_windows(model, tensorizer, windows, config, device, auxiliary):
         roll_losses.append(rollout_state_loss(output, target_batch))
         step_losses = transition_losses(output, target_batch, config)
         escapes.append(step_losses["escape"])
+        goal_escapes.append(step_losses["goal_relevant_escape"])
         counter = counterfactual_losses(output, target_batch, config)
         boundaries.append(counter["boundary"])
         paired.append(counter["paired"])
     roll = torch.stack(roll_losses).mean()
     escape, boundary, pair = (torch.stack(items).mean() for items in (escapes, boundaries, paired))
+    goal_escape = torch.stack(goal_escapes).mean()
     total = total + float(weights.get("rollout", 1)) * roll
     if auxiliary:
         total = total + float(weights.get("escape", 1)) * escape + float(weights.get("boundary", 1)) * boundary + float(weights.get("paired", 0)) * pair
+        total = total + float(weights.get("goal_sufficiency", 0)) * decision["goal_sufficiency"] + float(weights.get("goal_relevant_escape", 0)) * goal_escape
     metrics = {key: float(value.detach().cpu()) for key, value in components.items() if isinstance(value, torch.Tensor)}
     metrics.update(loss=float(total.detach().cpu()), rollout=float(roll.detach().cpu()), escape=float(escape.detach().cpu()), boundary=float(boundary.detach().cpu()), paired=float(pair.detach().cpu()), auxiliary_active=bool(auxiliary))
+    metrics.update(goal_sufficiency=float(decision["goal_sufficiency"].detach().cpu()), goal_relevant_escape=float(goal_escape.detach().cpu()),
+                   decision_groups=decision["decision_groups"], decision_eligible_groups=decision["decision_eligible_groups"],
+                   decision_informative_groups=decision["decision_informative_groups"])
     return total, metrics
 
 
@@ -191,7 +200,7 @@ def _manifest(records, config):
         for field in record.get("state", {}).get("fields", []):
             schema[field["key"]] = {k: field[k] for k in ("key", "kind", "entity", "choices", "scale") if k in field}
     digest = hashlib.sha256(canonical(records).encode()).hexdigest()
-    return {"format_version": 1, "records": len(records), "groups": groups, "evidence_origin": origins, "dataset_sha256": digest, "backend": "synthetic" if any(origin in ("synthetic", "fixture") for origin in origins) else "recorded", "schema": list(schema.values()), "gradient_boundaries": ["hard candidate retrieval and top-k scope", "JSON hard decode", "unbound entity/free-text creation"], "soft_rollout_horizon": int(config["train"].get("horizon", 4))}
+    return {"format_version": 1, "records": len(records), "groups": groups, "evidence_origin": origins, "dataset_sha256": digest, "backend": "synthetic" if any(origin in ("synthetic", "fixture") for origin in origins) else "recorded", "schema": list(schema.values()), "gradient_boundaries": ["hard candidate retrieval", "v2 scope: exact hard forward / fixed-budget implicit sigmoid STE backward" if config.get("model", {}).get("goal_sufficient", False) else "hard top-k scope", "JSON hard decode", "unbound entity/free-text creation"], "soft_rollout_horizon": int(config["train"].get("horizon", 4))}
 
 
 def train_model(records: list[dict], config: dict, output_dir: str | Path, resume: str | Path | None = None) -> dict:
@@ -200,6 +209,13 @@ def train_model(records: list[dict], config: dict, output_dir: str | Path, resum
     if any(r.get("split") in ("test", "test_normal", "test_challenge", "dev", "validation", "val") for r in records):
         raise ValueError("Held-out dev/test transitions must not be used for training")
     config = resolve_config(config)
+    decision_audit = scope_supervision_audit(records, Tensorizer(config), config)
+    if float(config["loss"].get("goal_sufficiency", 0)) > 0 and not decision_audit["decision_trainable_groups"]:
+        report_dir = Path(output_dir)
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report = {key: value for key, value in decision_audit.items() if key != "groups"}
+        (report_dir / "goal_supervision_audit.json").write_text(json.dumps(report, indent=2) + "\n")
+        raise ValueError("Goal-sufficiency training has no informative trainable legal counterfactual decisions; inspect goal_supervision_audit.json. Unknown or unretrievable labels cannot train v2.")
     train = config["train"]
     if int(train["epochs"]) < 1 or int(train["micro_batch"]) < 1 or int(train["grad_accum"]) < 1:
         raise ValueError("epochs, micro_batch and grad_accum must be positive")
@@ -226,6 +242,7 @@ def train_model(records: list[dict], config: dict, output_dir: str | Path, resum
     (outdir / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
     (outdir / "manifest.json").write_text(json.dumps({**manifest, "effective_precision": effective_precision, "device": str(device)}, ensure_ascii=False, indent=2) + "\n")
     (outdir / "schema.json").write_text(json.dumps(manifest["schema"], ensure_ascii=False, indent=2) + "\n")
+    (outdir / "goal_supervision_audit.json").write_text(json.dumps({key: value for key, value in decision_audit.items() if key != "groups"}, indent=2) + "\n")
     global_step, epoch, batch_cursor, order = 0, 0, 0, None
     history, latest = [], {}
     if resume:
@@ -234,6 +251,8 @@ def train_model(records: list[dict], config: dict, output_dir: str | Path, resum
             raise ValueError("Resume dataset differs from checkpoint")
         if checkpoint["config"]["model"] != config["model"] or checkpoint["config"]["loss"] != config["loss"]:
             raise ValueError("Resume architecture/loss configuration differs")
+        if checkpoint["config"].get("goal_decision", {}) != config.get("goal_decision", {}):
+            raise ValueError("Resume goal-decision utility configuration differs")
         for key in ("micro_batch", "grad_accum", "learning_rate", "weight_decay", "seed", "warmup_fraction", "epochs", "horizon"):
             if checkpoint["config"]["train"].get(key) != train.get(key):
                 raise ValueError(f"Resume train.{key} differs; exact resume requires the same schedule")
@@ -299,7 +318,15 @@ def load_predictor(checkpoint: str | Path, device: str = "cpu") -> tuple[Predict
     config = resolve_config(payload["config"])
     config["checkpoint_manifest"] = copy.deepcopy(payload.get("manifest", {}))
     model = Predictor(config).to(device)
-    model.load_state_dict(payload["model"])
+    weights = dict(payload["model"])
+    # Legacy inference migration only: new dormant heads copy their old state
+    # counterparts. Exact optimizer resume intentionally remains strict.
+    if not config.get("model", {}).get("goal_sufficient", False):
+        for new, old in (("goal_escape_head.", "escape_head."), ("goal_expansion_head.", "expansion_head.")):
+            for key in model.state_dict():
+                if key.startswith(new) and key not in weights:
+                    weights[key] = weights[old + key[len(new):]]
+    model.load_state_dict(weights)
     model.eval()
     return model, Tensorizer(config), config
 

@@ -94,7 +94,7 @@ def score_prediction(state, prediction, goals, action, step=0, config=None):
         else:
             unknown += weight
     risk_enabled = config.get("use_escape", float(config.get("escape_weight", 1)) > 0)
-    risk = float(prediction.get("escape", 0.0)) if risk_enabled else 0.0
+    risk = float(prediction.get("goal_escape", prediction.get("escape", 0.0))) if risk_enabled else 0.0
     uncertainty = float(prediction.get("uncertainty", 0.0))
     score = (float(config.get("progress_weight", 1)) * progress -
              float(config.get("damage_weight", 4)) * damage -

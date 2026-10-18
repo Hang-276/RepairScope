@@ -12,6 +12,41 @@ from torch.nn import functional as F
 from .tensorizer import KINDS, Tensorizer, canonical, to_device
 
 
+def budget_gate(scores, mask, hard_scope, temperature=1.0):
+    """Exact hard forward; implicit fixed-mass sigmoid relaxation backward.
+
+    The detached bisection finds the k-mass threshold. The differentiable
+    correction supplies its implicit derivative, including competition between
+    fields. Padding and all-selected rows have zero gradient.
+    """
+    if temperature <= 0:
+        raise ValueError("Scope relaxation temperature must be positive")
+    rows = []
+    for score, valid, hard in zip(scores.float(), mask, hard_scope):
+        values = score[valid]
+        k = int(hard.sum())
+        if not values.numel() or k == 0 or k == values.numel():
+            rows.append(hard.to(score.dtype) + score.masked_fill(~valid, 0) * 0)
+            continue
+        with torch.no_grad():
+            lo, hi = values.min() - 40 * temperature, values.max() + 40 * temperature
+            for _ in range(48):
+                threshold = (lo + hi) / 2
+                if ((values - threshold) / temperature).sigmoid().sum() > k:
+                    lo = threshold
+                else:
+                    hi = threshold
+            threshold = (lo + hi) / 2
+            prob = ((values - threshold) / temperature).sigmoid()
+            derivative = prob * (1 - prob) / temperature
+            threshold_weights = derivative / derivative.sum().clamp_min(1e-12)
+        implicit_threshold = threshold + ((values - values.detach()) * threshold_weights).sum()
+        soft = ((values - implicit_threshold) / temperature).sigmoid()
+        relaxed = torch.zeros_like(score).masked_scatter(valid, soft)
+        rows.append(hard.to(score.dtype) + (relaxed - relaxed.detach()))
+    return torch.stack(rows)
+
+
 class RelationBlock(nn.Module):
     def __init__(self, width: int, heads: int, dropout: float, learned_edges: bool):
         super().__init__()
@@ -67,6 +102,8 @@ class Predictor(nn.Module):
             raise ValueError("backbone must be blite or unified")
         self.use_temporal = bool(cfg.get("temporal", True))
         self.static_scope = bool(cfg.get("static_scope", False))
+        self.goal_sufficient = bool(cfg.get("goal_sufficient", False))
+        self.goal_escape_enabled = self.goal_sufficient and float(config.get("loss", {}).get("goal_relevant_escape", 0)) > 0
         self.learned_edges = bool(cfg.get("learned_edges", True))
         self.use_escape = float(config.get("loss", {}).get("escape", 1)) > 0
         feature_dim = int(cfg.get("feature_dim", 64))
@@ -97,6 +134,9 @@ class Predictor(nn.Module):
         self.copy_query = nn.Linear(self.width, self.width)
         self.copy_key = nn.Linear(self.width, self.width)
         self.escape_head = nn.Sequential(nn.Linear(4 * self.width + 2, self.width), nn.GELU(), nn.Linear(self.width, 1))
+        # Instantiated for every variant so parameter capacity is matched.
+        self.goal_escape_head = copy.deepcopy(self.escape_head)
+        self.goal_expansion_head = copy.deepcopy(self.expansion_head)
         self.goal_encoder = nn.Linear(feature_dim, self.width)
         self.goal_head = nn.Sequential(nn.Linear(3 * self.width, self.width), nn.GELU(), nn.Linear(self.width, 4))
 
@@ -111,23 +151,50 @@ class Predictor(nn.Module):
         h = h + self.action_encoder(batch["history_action"]).unsqueeze(1)
         return h, batch["history_mask"]
 
+    def _goal_context(self, batch, x):
+        context = torch.zeros_like(x)
+        embeddings = self.goal_encoder(batch["goal_features"])
+        bound = embeddings * batch["goal_mask"].unsqueeze(-1)
+        context.scatter_add_(1, batch["goal_field"].unsqueeze(-1).expand_as(bound), bound)
+        # Goals outside retrieved fields still condition the risk estimate.
+        present = batch["goal_features"].abs().sum(-1) > 0
+        global_goal = (embeddings * present.unsqueeze(-1)).sum(1) / present.sum(1, keepdim=True).clamp_min(1)
+        return context + global_goal.unsqueeze(1)
+
     def _scope(self, x, action, batch, state):
         b, n, _ = x.shape
         action_fields = action.unsqueeze(1).expand(-1, n, -1)
-        logits = self.scope_head(torch.cat((x, action_fields), dim=-1)).squeeze(-1)
+        scope_features = x
+        if self.goal_sufficient:
+            # Public predicates condition the learned scorer; offline effects
+            # supervise it via decision distillation, never through its inputs.
+            scope_features = x + self._goal_context(batch, x)
+        logits = self.scope_head(torch.cat((scope_features, action_fields), dim=-1)).squeeze(-1)
         pooled = (x * batch["mask"].unsqueeze(-1)).sum(1) / batch["mask"].sum(1, keepdim=True).clamp_min(1)
         expansion = self.expansion_head(torch.cat((pooled, action), dim=-1)).sigmoid()
+        goal_pooled = (scope_features * batch["mask"].unsqueeze(-1)).sum(1) / batch["mask"].sum(1, keepdim=True).clamp_min(1)
+        goal_expansion = self.goal_expansion_head(torch.cat((goal_pooled, action), dim=-1)).sigmoid()
         probability = logits.sigmoid()
         uncertainty = 4 * probability * (1 - probability)
         # Goal priority changes scheduling only, never the dynamics features.
         if self.static_scope:
             score = batch["static_prior"]
+            if self.goal_sufficient:
+                # Static + uncertainty expansion: no learned scope rank or goal
+                # priority, still the identical hard budget and unknown access.
+                risk = goal_expansion if self.goal_escape_enabled else expansion
+                score = score + 0.2 * uncertainty + 0.2 * (1 - state["known"]) + 0.25 * risk * (1-batch["static_prior"])
         else:
             learned = probability if self.learned_edges else torch.zeros_like(probability)
-            risk = expansion if self.use_escape else torch.zeros_like(expansion)
-            score = batch["static_prior"] + learned + 0.2 * uncertainty + 0.2 * (1 - state["known"]) + 0.25 * risk * (1 - batch["static_prior"]) + 0.2 * batch["goal_priority"].clamp(max=5)
+            risk = goal_expansion if self.goal_escape_enabled else expansion if self.use_escape else torch.zeros_like(expansion)
+            priority = 0 if self.goal_sufficient else 0.2 * batch["goal_priority"].clamp(max=5)
+            # v2 uses learned decision logits directly, rather than a goal
+            # multiplier on the state-change probability.
+            learned = logits if self.goal_sufficient else learned
+            score = batch["static_prior"] + learned + 0.2 * uncertainty + 0.2 * (1 - state["known"]) + 0.25 * risk * (1 - batch["static_prior"]) + priority
         score = score.masked_fill(~batch["mask"], float("-inf"))
         selected = torch.zeros_like(batch["mask"])
+        reserved = torch.zeros_like(selected)
         for i in range(b):
             available = int(batch["mask"][i].sum())
             count = min(self.scope_budget, available)
@@ -143,15 +210,19 @@ class Predictor(nn.Module):
                 hashes = ((remainder.to(torch.long) * 1103515245 + 12345) % 2147483647)
                 chosen = remainder[torch.argsort(hashes)[:reserve]]
                 selected[i, chosen] = True
-        return logits, selected, expansion.squeeze(-1)
+                reserved[i, chosen] = True
+        gate = (reserved.to(logits.dtype) + budget_gate(score, batch["mask"] & ~reserved, selected & ~reserved,
+                float(self.config.get("model", {}).get("scope_temperature", 1.)))) if self.goal_sufficient else selected.to(logits.dtype)
+        return logits, selected, expansion.squeeze(-1), gate, goal_expansion.squeeze(-1)
 
-    def reliability(self, hidden, action, scope, mask):
+    def reliability(self, hidden, action, scope, mask, goal=False):
         def pool(selection):
             return (hidden * selection.unsqueeze(-1)).sum(1) / selection.sum(1, keepdim=True).clamp_min(1)
         inside, outside = scope & mask, ~scope & mask
         size = scope.sum(1, keepdim=True) / mask.sum(1, keepdim=True).clamp_min(1)
         uncovered = outside.sum(1, keepdim=True) / mask.sum(1, keepdim=True).clamp_min(1)
-        return self.escape_head(torch.cat((pool(mask), pool(inside), pool(outside), action, size, uncovered), -1)).squeeze(-1)
+        head = self.goal_escape_head if goal else self.escape_head
+        return head(torch.cat((pool(mask), pool(inside), pool(outside), action, size, uncovered), -1)).squeeze(-1)
 
     def forward(self, batch: dict, soft_state: dict | None = None, history: tuple | None = None) -> dict:
         state = soft_state if soft_state is not None else {key: batch[key] for key in ("values", "numeric", "known", "exists", "null")}
@@ -159,7 +230,7 @@ class Predictor(nn.Module):
         raw = self._state_embedding(batch, state, slots)
         action = self.action_encoder(batch["action"])
         x = raw + action.unsqueeze(1)
-        scope_logits, scope, expansion = self._scope(x, action, batch, state)
+        scope_logits, scope, expansion, scope_gate, goal_expansion = self._scope(x, action, batch, state)
         if history is None:
             history = self._initial_history(batch, slots)
         old_h, old_mask = history
@@ -222,12 +293,17 @@ class Predictor(nn.Module):
         field_features = x.gather(1, goal_fields)
         next_embedding = self._state_embedding(batch, next_state, slots).gather(1, goal_fields)
         goal_logits = self.goal_head(torch.cat((field_features, next_embedding, self.goal_encoder(batch["goal_features"])), dim=-1))
+        goal_hidden = x + self._goal_context(batch, x) if self.goal_sufficient else x
         return {"op_logits": op_logits, "op_probabilities": applied_ops, "value_logits": value_logits,
                 "value_probabilities": value_prob, "numeric": number, "null_logits": null_logits, "null_probabilities": null_probability, "soft_state": next_state,
-                "scope_logits": scope_logits, "scope": scope,
+                "scope_logits": scope_logits, "scope": scope, "scope_gate": scope_gate,
                 "escape_logits": self.reliability(x, action, scope, batch["mask"]),
                 "recorded_escape_logits": self.reliability(x, action, batch["recorded_scope"], batch["mask"]),
-                "expansion": expansion, "goal_logits": goal_logits, "hidden": x,
+                "expansion": expansion, "goal_expansion": goal_expansion,
+                "goal_escape_logits": self.reliability(goal_hidden, action, scope, batch["mask"], goal=True),
+                "recorded_goal_escape_logits": self.reliability(goal_hidden, action, batch["recorded_scope"], batch["mask"], goal=True),
+                "goal_logits": goal_logits, "hidden": x,
+                "goal_sufficient": self.goal_sufficient, "goal_escape_enabled": self.goal_escape_enabled,
                 "next_history": (torch.cat((old_h, (raw + action.unsqueeze(1)).unsqueeze(2)), dim=2)[:, :, -self.history_length:],
                                  torch.cat((old_mask, batch["mask"].unsqueeze(-1)), dim=-1)[:, :, -self.history_length:])}
 
@@ -268,9 +344,13 @@ def decode_prediction(output: dict, batch: dict, index: int = 0) -> dict:
         patches.append({"key": key, "op": ("keep", "modify", "create", "delete")[op], "kind": field.get("kind", "text"), "value": field.get("value"), "known": field["known"], "exists": field["exists"], "probability": float(output["op_probabilities"][index, j, op].detach().cpu())})
     next_state["fields"] = list(fields.values())
     goals = output["goal_logits"][index].softmax(-1).detach().cpu().tolist()[:len(record.get("goals", []))]
-    return {"next_state": next_state, "patch": patches, "scope": selected,
+    result = {"next_state": next_state, "patch": patches, "scope": selected,
             "escape": float(output["escape_logits"][index].sigmoid().detach().cpu()),
             "goal_probabilities": goals, "scope_probabilities": probabilities, "change_probabilities": changes, "operation_probabilities": operations, "uncertainty": 0.0}
+    if output.get("goal_escape_enabled", False):
+        result["goal_escape"] = float(output["goal_escape_logits"][index].sigmoid().detach().cpu())
+    result["scope_objective"] = "goal_sufficient" if output.get("goal_sufficient", False) else "state_coverage"
+    return result
 
 
 def predict_record(model: Predictor, tensorizer: Tensorizer, record: dict, device: str = "cpu", mc_samples: int = 0) -> dict:
