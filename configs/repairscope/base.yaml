@@ -1,0 +1,50 @@
+experiment: repairscope
+variant: full
+model:
+  d_model: 384
+  n_heads: 6
+  relation_layers: 4
+  temporal_layers: 2
+  history: 8
+  scope_budget: 128
+  candidate_limit: 256
+  feature_dim: 64
+  value_slots: 64
+  dropout: 0.1
+  backbone: blite
+  learned_edges: true
+  temporal: true
+  static_scope: false
+train:
+  epochs: 30
+  micro_batch: 4
+  grad_accum: 4
+  learning_rate: 0.0003
+  weight_decay: 0.01
+  clip: 1.0
+  precision: bf16
+  warmup_fraction: 0.1
+  horizon: 4
+  seed: 100
+  device: auto
+data:
+  train: data/repairscope/train.jsonl
+  dev: data/repairscope/dev.jsonl
+  allow_synthetic: false
+environment:
+  backend: appworld
+  offline_audit: false
+actor:
+  kind: openai
+  model: null
+evaluation:
+  split: test_normal
+controller:
+  candidate_count: 4
+  max_steps: 50
+  max_calls: 100
+  risk_threshold: 0.5
+probing:
+  strategy: risk
+  budget_calls: 2000
+  epsilon: 0.1

@@ -1,0 +1,6 @@
+{
+  "fixture-0": [
+    {"id":"shipping","field":"shop.Order[1].shipping","op":"eq","value":"express","protected":false,"weight":1},
+    {"id":"paid","field":"shop.Order[1].paid","op":"eq","value":true,"protected":true,"protect_from_step":0,"weight":2}
+  ]
+}

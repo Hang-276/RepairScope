@@ -19,6 +19,7 @@ from browser_env.env_config import URL_MAPPINGS
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
+from .wma_core import generate_candidates, stable_rank
 from .agent import Agent, PromptAgent
 from agent.prompts.prompt_constructor import CoTPromptConstructor
 
@@ -177,51 +178,31 @@ class WMAgent(Agent):
             "observation": obs['text'],
             "previous_action": previous_action_str
         }
-        action_generation_input = action_prediction_prompt.invoke(input_variables_for_action)
-        raw_response_for_action_prediction = self.policy_llm.generate([action_generation_input])
-        
-        all_actions = {}
-        parsed_actions_count = {}
-        for response in raw_response_for_action_prediction.generations[0]:
-            parsed_response = self.extract_action(response.text)
-            if parsed_response in all_actions: # when we get the same action, we increment the count.
-                parsed_actions_count[parsed_response] += 1
-
-            else: # when we get a new action, we create a new action instance.
-                try:
-                    if self.action_set_tag == "id_accessibility_tree":
-                        action = create_id_based_action(parsed_response)
-                    elif self.action_set_tag == "playwright":
-                        action = create_playwright_action(parsed_response)
-                    elif self.action_set_tag == "som":
-                        action = create_id_based_action(parsed_response)
-                    else:
-                        raise ValueError(
-                            f"Unknown action type {self.action_set_tag}"
-                        )
-                except Exception:
-                    action = create_none_action()
-
-                parsed_actions_count[parsed_response] = 1
-                action["raw_prediction"] = response
-                all_actions[parsed_response] = action
-
-        top_actions = sorted(parsed_actions_count, key=parsed_actions_count.get, reverse=True)[:branching_factor]
-        top_action_count = sum([parsed_actions_count[action] for action in top_actions])
+        raw_response_for_action_prediction, selected_candidates = generate_candidates(
+            self.policy_llm, action_prediction_prompt, input_variables_for_action,
+            parse=lambda response: self.extract_action(response.text), count=branching_factor,
+        )
+        if not selected_candidates:
+            raise ValueError("WMA policy generated no candidate actions")
+        top_actions = [candidate["action"] for candidate in selected_candidates]
         updated_actions = []
-        for action in top_actions:
-            a = all_actions[action]
-            a['prob'] = parsed_actions_count[action] / top_action_count
-            updated_actions.append(a)
+        for candidate in selected_candidates:
+            try:
+                if self.action_set_tag in ("id_accessibility_tree", "som"):
+                    action = create_id_based_action(candidate["action"])
+                elif self.action_set_tag == "playwright":
+                    action = create_playwright_action(candidate["action"])
+                else:
+                    raise ValueError(f"Unknown action type {self.action_set_tag}")
+            except Exception:
+                action = create_none_action()
+            action["raw_prediction"] = candidate["raw"].text
+            action["prob"] = candidate["prob"]
+            updated_actions.append(action)
 
         top_action_str = []
         for action_index, action_str in enumerate(top_actions):
-            try:
-                action_ = create_id_based_action(action_str)
-            except:
-                action_ = create_none_action()
-
-            action_["raw_prediction"] = raw_response_for_action_prediction.generations[0][action_index].text
+            action_ = dict(updated_actions[action_index])
             action_str = get_action_description(
                     action_,
                     state_info["info"]["observation_metadata"],
@@ -233,12 +214,7 @@ class WMAgent(Agent):
             top_action_str.append(action_str)
 
         for action_index, stop_action in enumerate(top_actions):
-            try:
-                action_ = create_id_based_action(stop_action)
-            except:
-                action_ = create_none_action()
-
-            action_["raw_prediction"] = raw_response_for_action_prediction.generations[0][action_index].text
+            action_ = dict(updated_actions[action_index])
             if "stop" in stop_action:
                 raw_response_for_state_prediction = "None"
                 raw_response_for_value_score_calculation = "None"
@@ -288,13 +264,10 @@ class WMAgent(Agent):
         # ==============================
         # Step 4: We select the action with the highest reward.
         # ==============================
-        best_action_index = np.argmax(value_scores)
+        ranked_candidates = stable_rank(top_actions, parsed_state, value_scores)
+        best_action_index = top_actions.index(ranked_candidates[0]["action"])
 
-        try:
-            action = create_id_based_action(top_actions[best_action_index])
-        except:
-            action = create_none_action()
-        action["raw_prediction"] = raw_response_for_action_prediction.generations[0][best_action_index].text
+        action = dict(updated_actions[best_action_index])
 
         return (
             action,

@@ -1,0 +1,34 @@
+base: base.yaml
+experiment: local_engineering_smoke
+environment:
+  backend: fixture
+  offline_audit: true
+actor:
+  kind: scripted
+data:
+  allow_synthetic: true
+model:
+  d_model: 32
+  n_heads: 4
+  relation_layers: 1
+  temporal_layers: 1
+  history: 4
+  scope_budget: 4
+  candidate_limit: 16
+  feature_dim: 16
+  value_slots: 16
+train:
+  epochs: 1
+  micro_batch: 2
+  grad_accum: 1
+  device: cpu
+  precision: fp32
+  max_steps: 5
+controller:
+  max_steps: 4
+  max_calls: 20
+  mc_samples: 2
+probing:
+  budget_calls: 8
+  mc_samples: 2
+  update_every: 4
