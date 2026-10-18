@@ -161,7 +161,8 @@ def _install_change_tracking(world: Any) -> dict[str, Any]:
     actual before/after row values against the baseline and a sparse row cache.
     """
     tracking: dict[str, Any] = {'apps': {}, 'complete': True, 'rows': {},
-                                'rowids': {}, 'descriptor': {'kind': 'appworld_initial_db'}}
+                                'rowids': {}, 'history_fields': set(),
+                                'descriptor': {'kind': 'appworld_initial_db'}}
     tracked = world.models.get_tracked_db_changes()
     for app in world.models.model_names():
         if app == 'SQLModel':
@@ -490,6 +491,17 @@ def _compact_audit(world: Any, tracking: dict[str, Any], before_public: dict[str
         field = _lookup_key_field(tracking, key, template)
         if field is not None:
             selected[key] = (field, field)
+    # Keep previously changed fields in every later compact state so four-cell
+    # alignment and post-change supervision do not depend on the step in which
+    # the change happened.
+    history = tracking.setdefault('history_fields', set())
+    for key in sorted(history):
+        if key in selected:
+            continue
+        field = _lookup_key_field(tracking, key)
+        if field is not None:
+            selected[key] = (field, field)
+    history.update(pairs)
     before_fields = {key: deepcopy(before) for key, (before, _) in selected.items()}
     after_fields = {key: deepcopy(after) for key, (_, after) in selected.items()}
     audit = {

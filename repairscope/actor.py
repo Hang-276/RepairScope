@@ -74,7 +74,7 @@ def normalize_action(action: Any) -> dict:
     if not 0 < cost < float("inf"):
         raise ValueError("Action cost must be finite and positive")
     result = {"name": action["name"], "arguments": copy.deepcopy(arguments), "cost": cost}
-    if action.get("code") is not None:
+    if action.get("code") is not None and str(action["code"]).strip():
         result["code"] = str(action["code"])
     for key in ("read_only", "wma_action", "prob", "description"):
         if key in action:
@@ -96,6 +96,10 @@ ACTION_FORMAT_GUIDE = (
     'If a previous action already succeeded and its output is in the state, do not repeat that action; use the output to advance. '
     'When the task asks a question and the answer is present in the state, call apis.supervisor.complete_task(answer=<answer>). '
     'When the task asks for state changes, apply them and then call apis.supervisor.complete_task(). '
+    'Never call an app detail/write API before that app login succeeds in the same code block. '
+    'If an API needs an entity id, first call the app search/list API and read the real id from the output; never pass a placeholder id. '
+    'If a required parameter is unclear, call apis.api_docs.show_api_doc(app_name=..., api_name=...) and use its exact name and type. '
+    'Every failed call is recorded and charged; read its error, do not repeat it, and choose a different legal action. '
     'Unless the state already contains a valid access_token for the app, a code block must obtain it first: '
     'call apis.supervisor.show_profile() and apis.supervisor.show_account_passwords(), find the row whose account_name '
     'matches the app, call that app login API with the supervisor email and the returned password, and pass the returned '
@@ -160,6 +164,9 @@ class FrozenActor:
         self.parse_repairs = 0
         self.rejected_candidates = 0
         self.retries = 0
+        self.http_calls = 0
+        self.cache_hits = 0
+        self.last_http_calls = 0
         self.cache: dict = {}
         self.cache_path = self.config.get("cache_path")
         if self.cache_path and Path(self.cache_path).exists():
@@ -193,6 +200,8 @@ class FrozenActor:
         # once or twice with a larger output cap; both arms share this policy.
         last_error = None
         for attempt in range(3):
+            self.http_calls += 1
+            self.last_http_calls += 1
             request = urllib.request.Request(url, json.dumps(body).encode(),
                       {"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
             with urllib.request.urlopen(request, timeout=float(self.config.get("timeout", 120))) as response:
@@ -210,9 +219,15 @@ class FrozenActor:
                 body["max_tokens"] = min(8192, int(body["max_tokens"]) * 2)
         raise ValueError(f"Frozen Actor returned no parseable JSON actions: {last_error}")
 
+    def stats(self) -> dict:
+        return {"calls": self.calls, "http_calls": self.http_calls,
+                "retries": self.retries, "cache_hits": self.cache_hits,
+                "rejected_candidates": self.rejected_candidates}
+
     def generate(self, state: dict, goals: list[dict], history: list[dict], count: int = 4,
                  mode: str = "execute", instruction: str = "") -> list[dict]:
         self.calls += 1
+        self.last_http_calls = 0
         messages = self._messages(state, goals, history, count, mode, instruction)
         policy = {"model": self.config.get("model") or os.environ.get("ACTOR_MODEL", "gpt-4o-mini"),
                   "base_url": self.config.get("base_url") or os.environ.get(self.config.get("base_url_env", "OPENAI_BASE_URL")),
@@ -224,6 +239,7 @@ class FrozenActor:
             self.cache.update(json.loads(Path(self.cache_path).read_text()))
         self.last_cache_hit = key in self.cache
         if self.last_cache_hit:
+            self.cache_hits += 1
             raw = self.cache[key]
         elif self.backend == "cached":
             raise KeyError(f"Missing frozen Actor cache entry {key}; API fallback is disabled")

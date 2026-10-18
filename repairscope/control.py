@@ -136,6 +136,11 @@ class RepairController:
         candidates = self.budget.call("actor", lambda: self.actor.generate(
             public_state(state), public_goals(goals), public_history(self.history), count=count,
             mode=mode, instruction=instruction), float(self.config.get("actor_cost", 1)), mode=mode)
+        # Every extra HTTP attempt (format retry) is a real policy call and is
+        # charged at the same actor unit, never hidden as a free retry.
+        extra = max(0, int(getattr(self.actor, "last_http_calls", 0)) - 1)
+        if extra:
+            self.budget.settle("actor_retry_adjustment", float(extra), 0.0, mode=mode)
         if mode == "repair":
             # Reserve a slot for no repair; do not silently expand the common candidate budget.
             candidates = [a for a in candidates if a.get("name") != "noop"][:max(0, count - 1)]

@@ -103,6 +103,7 @@ def collect(config: dict[str, Any], output_dir: str | Path, actor: Any = None, p
     for task_id in _task_ids(config, split):
         env = create_environment(config, task_id, split, 'rs_collect_' + uuid.uuid4().hex[:12])
         history, task_cost, task_records = [], 0., []
+        actor_before = actor.stats() if actor is not None else {}
         start = time.monotonic()
         try:
             state = env.reset()
@@ -136,8 +137,12 @@ def collect(config: dict[str, Any], output_dir: str | Path, actor: Any = None, p
                 write_jsonl(output / 'transitions.jsonl', records)
                 if result.get('done'):
                     break
+            actor_after = actor.stats() if actor is not None else {}
+            actor_delta = {key: actor_after.get(key, 0) - actor_before.get(key, 0)
+                           for key in actor_after} if actor_after else {}
             task_summaries.append({'task_id': task_id, 'steps': len(task_records), 'cost': task_cost,
-                                   'duration_seconds': time.monotonic() - start, 'evidence_origin': env.evidence_origin})
+                                   'duration_seconds': time.monotonic() - start,
+                                   'evidence_origin': env.evidence_origin, 'actor': actor_delta})
         except BaseException as error:
             _json_write(output / 'collection_failure.json', {'task_id': task_id, 'error': f'{type(error).__name__}: {error}',
                         'completed_records': len(records), 'known_cost': total_cost, 'cost_unresolved': isinstance(error, TimeoutError)})
@@ -145,8 +150,12 @@ def collect(config: dict[str, Any], output_dir: str | Path, actor: Any = None, p
         finally:
             env.close()
     summary = {**validate_dataset(records, allow_synthetic=config['environment']['backend'] == 'fixture'),
-               'total_cost': total_cost, 'tasks_completed': task_summaries, 'actor_frozen': True, 'used_for_training': split == 'train', 'collection_role': 'training' if split == 'train' else 'held_out_recorded_evaluation',
-               'scientific_evidence': config['environment']['backend'] == 'appworld', 'path': str((output / 'transitions.jsonl').resolve())}
+               'total_cost': total_cost, 'tasks_completed': task_summaries, 'actor_frozen': True,
+               'actor': actor.stats() if actor is not None else {},
+               'used_for_training': split == 'train',
+               'collection_role': 'training' if split == 'train' else 'held_out_recorded_evaluation',
+               'scientific_evidence': config['environment']['backend'] == 'appworld',
+               'path': str((output / 'transitions.jsonl').resolve())}
     _json_write(output / 'summary.json', summary)
     return summary
 
@@ -253,15 +262,40 @@ def extract_prefix(records: Iterable[dict[str, Any]], stop_step: int) -> list[di
 
 
 def _align_counterfactual_audits(records: list[dict[str, Any]]) -> None:
-    """Creation/deletion support from complete closed-domain audit snapshots only.
+    """Creation/deletion support and four-cell field alignment.
 
-    This augments audit labels, never public states, and is forbidden for partial
-    domains. A missing row in an explicitly complete SQLite snapshot is absent;
-    an omitted field in a partial read remains unknown.
+    A compact audit stores only public/changed fields. Siblings of one condition
+    share the verified prefix and condition; when one sibling stores a field and
+    the other omits it, the omitting sibling did not change that field, so its
+    before/after value equals the storing sibling's before value. Copying that
+    value makes the four-cell field domain align without inventing changes.
     """
     groups: dict[str, list[dict[str, Any]]] = {}
     for record in records:
         groups.setdefault(record['cf_pair_id'], []).append(record)
+    by_condition: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+    for record in records:
+        by_condition.setdefault((record['cf_pair_id'], record['cf_condition']), {})[record['cf_role']] = record
+    for cells in by_condition.values():
+        if set(cells) != {'action', 'reference'}:
+            continue
+        action, reference = cells['action'], cells['reference']
+        for source, target in ((action, reference), (reference, action)):
+            # Stored transition convention: audit_state is before, audit_next_state is after.
+            source_before = field_map(source.get('audit_state') or {})
+            target_before = field_map(target.get('audit_state') or {})
+            target_after = field_map(target.get('audit_next_state') or {})
+            for key, field in source_before.items():
+                if key in target_before:
+                    continue
+                target_before[key] = deepcopy(field)
+                target_after[key] = deepcopy(field)
+            target['audit_state'] = {'fields': list(target_before.values()),
+                                     'relations': target.get('audit_state', {}).get('relations', [])}
+            target['audit_next_state'] = {'fields': list(target_after.values()),
+                                          'relations': target.get('audit_next_state', {}).get('relations', [])}
+            target['audit']['field_domain'] = sorted(set(target['audit']['field_domain']) | set(target_before))
+            validate_transition(target)
     for cells in groups.values():
         if not all(r['audit']['complete'] and r['audit'].get('domain_kind') in ('global_sqlite', 'fixture_closed_world') and r.get('audit_next_state') is not None for r in cells):
             continue
