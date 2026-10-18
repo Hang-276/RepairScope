@@ -173,7 +173,9 @@ bash scripts/repairscope/collect_dev.sh
 | 消融 | no_goal_relevant_escape | v2 去掉 Goal-Relevant Escape |
 | 消融 | v2_static_scope | 静态 Scope + 不确定性扩展 |
 
-所有组同一 Actor/提示/候选动作/训练数据/模型容量/预算/任务清单；v2 新小头在所有配置均实例化以匹配容量。A0 不训练。初轮固定 **seed100，8 个训练配置各 30 epochs**，有效 batch=16（micro4、累积4）、BF16、AdamW 3e-4、weight decay .01、clip1，H4、候选上限256、Scope128、候选动作4、控制器总calls100/任务、步数50。只有显存故障允许两组一致地减 microbatch并增累积，保持有效batch及兄弟分支完整。
+所有组使用同一 Actor/提示、共享离线候选与训练数据、相同在线候选生成规则和同请求缓存、模型容量、资源上限及任务清单；线上轨迹分叉后候选可以不同，记录实际调用与缓存。v2 新小头均实例化以匹配容量。A0 不训练。初轮固定 **seed100，8 个训练配置各 30 epochs**，有效 batch=16（micro4、累积4）、BF16、AdamW 3e-4、weight decay .01、clip1，H4、候选上限256、Scope128、候选动作4、控制器混合调用ledger100/任务、步数50。混合ledger不是100次环境执行；各组所有费用据实分项报告。只有显存故障允许所有相关训练组一致地减microbatch并增累积，保持有效batch及兄弟分支完整。
+
+静态Scope是复合对照：同时关闭GS和学习排序，且当前没有动态组的确定性覆盖预留；保留相同字段预算，但不能声称仅改变单一排序机制或预留规则完全一致。以完整Proposal第11节的指标、标签覆盖和统计口径为准。
 
 使用全新的结果目录名，必须包含 v2/goal_sufficient；入口拒绝覆盖已有目录。配置、训练输入和 dev 输入用实际绝对路径。
 
@@ -203,7 +205,7 @@ Decision Regret 是部署控制器在相同合法可比较候选组上所选动�
 
 预算曲线显式配置 `evaluation.scope_budgets`；同一 checkpoint、同一公开候选上限、同一冻结 dev 数据，不重新训练、不挑最佳测试预算。它是离线字段预算—目标保护曲线，不等于真实 AppWorld 任务成功—总调用成本曲线。未见条件/动作/目标组合按提前冻结的 Manifest 分组；未实现自动组合标签时保留 N/A，不事后挑选有利组。
 
-主 A 完成后执行独立 B：同一起始 A4 checkpoint、同一 train-only 候选计划池，随机/一般不确定性/novelty-learnability/risk 四策略各 **2000** 真实环境执行成本单位，ε=.1，总上限 **8000**，失败/前缀/条件/查询/续跑全部记账。不能因样本少或结果差增加预算。当前 novelty-learnability 是轻量启发式，不能称完整复现 OnlineWM。记录累计25/50/75/100%预算点，查询任务冻结且不进入更新。
+主 A 完成后执行独立 B：同一起始 A4 checkpoint、同一 train-only 候选计划池，随机/一般不确定性/novelty-learnability/risk 四策略各 **2000** 真实环境探索采集执行单位，ε=.1，采集上限合计 **8000**。前缀、条件、失败和续跑全部计入采集；当前代码将冻结查询费用另列，真实总环境执行成本为采集加查询。须在启动前按固定查询任务/次数/调用上限，把初始和累计25/50/75/100%查询纳入已有批准的全局预算，不能声称整个 B 已由8000封顶。若批准口径要求 B 的全部费用都在8000内，则不能按2000×4再额外执行查询，先使实际费用分配与总上限一致。查询预算未明确时停止相关B执行，不扩额。当前 novelty-learnability 是轻量启发式，不称完整复现 OnlineWM；查询任务冻结且不进入更新。
 
 ```bash
 export CHECKPOINT=/实际/A4/seed_100/training/checkpoint.pt
@@ -212,7 +214,7 @@ export RUN_ROOT=/root/autodl-tmp/RepairScope-runs-v2-exploration
 bash scripts/repairscope/run_goal_sufficient_b.sh
 ```
 
-共享采集与 dev 评估分支的总调用上限必须从已有批准预算/冻结计划按真实 replay 成本核算并写 Manifest，不能把 B 的 8000 预算借给采集或自动扩张。若原预算尚未明确，先完成固定计划的费用核算，报告尚缺的明确预算值，不开始无界采集。
+共享采集、dev 评估分支和 B 冻结查询的总调用上限必须从已有批准预算/冻结计划按真实 replay 成本核算并写 Manifest，不能把 B 的8000采集预算借给其他阶段或自动扩张。若原预算尚未明确，先完成固定计划的费用核算，报告尚缺的明确预算值，不开始无界采集。
 
 普通工程错误可在当前范围等义修复并留源码 diff、必要回归、真实版本与成本。正式 checkpoint 仅在完全同数据/模型/loss/效用/日程时 exact resume；v1 checkpoint 不直接续训成 v2。版本变化影响对照时保持全组一致。没有真实业务目标、没有可训练 Scope 决策组、真值/成本无法核实、或必须改变机制/预算时停止受影响链路并报告；不重复全面审计，不用无意义 Pilot 填补数据缺口。
 

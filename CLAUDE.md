@@ -4,7 +4,7 @@
 
 首先阅读 [完整服务器交接](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md)。方法与 Eval 的完整版本在 [v2 Proposal](docs/RepairScope_v2_Proposal.md)。旧 `docs/REPAIRSCOPE_PROPOSAL.md`、`docs/CLAUDE_SERVER_HANDOFF.md` 和旧 runbook 保留作历史资料，不能据旧限制跳过 v2，也不能据完整旧计划扩大本次预算。
 
-当前主要执行入口是 `scripts/repairscope/run_goal_sufficient_main.sh`：A0–A4 加四项必要消融，初轮 seed100、8个训练配置各30 epochs、同一共享数据/Actor/模型容量/Scope预算128/H4/执行预算/官方任务集。B 使用独立 `run_goal_sufficient_b.sh`，四策略各2000真实执行单位，总8000；额外随机种子和跨环境部署仅为后续计划。禁止调用旧 `run_primary_experiment.sh` 启动旧版流程。
+当前主要执行入口是 `scripts/repairscope/run_goal_sufficient_main.sh`：A0–A4 加四项必要消融，初轮 seed100、8个训练配置各30 epochs、同一共享数据/Actor/模型容量/Scope预算128/H4/执行预算/官方任务集。B 使用独立 `run_goal_sufficient_b.sh`，每策略2000、合计8000约束的是探索采集执行；冻结查询在当前代码中另计，须事先纳入已批准的全局费用上限，不能解释为免费或自动扩额。额外随机种子和跨环境部署仅为后续计划。禁止调用旧 `run_primary_experiment.sh` 启动旧版流程。
 
 代码、proposal 与交接提示词均由 MacBook 本地维护、提交并推送到 `feat/goal-sufficient-scope`。服务器 Claude 只从该 GitHub 分支安全 clone 到独立目录，复用原环境，不在服务器提交/推送代码、不安装依赖、不擅自启动/停止模型服务或运行未满足准入条件的训练。已有原仓库及数据/checkpoint 必须保留；实际接手时核对版本和进程所有权，不能影响其他任务。
 
