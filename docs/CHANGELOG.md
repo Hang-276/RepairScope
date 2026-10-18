@@ -4,6 +4,14 @@
 
 服务器逐项操作另记 `/root/autodl-tmp/RepairScope-server-notes/CHANGELOG_V2.md`，字段模板见 [自主续接说明第7节](CLAUDE_OURS_ONLY_CONTINUATION.md#7-每项修改必须即时写入markdown变更日志)。服务器日志、原始数据和权重不因这一要求自动加入Git。
 
+## 2026-10-18：记录Ours/SCPS Stage1首轮训练
+
+- 起点：`51d4cb8`。用户转交后续自主执行报告：122/30 train/dev、30 epochs、253 updates，84 updates有SCPS terms，训练约4分20秒；配置开启SCPS、关闭旧oracle GS。仅报告值，未接收或复验服务器源码、配置、权重和日志。
+- 新增`OURS_SCPS_STAGE1_RUN.md`，更新README、CLAUDE、Proposal与历史Stage1入口，区分已完成训练和未测效果。6/8支持组仅13–57字段，没有B128竞争；train CF拟合不视作held-out效果。dev 30/27/21个H1/H2/H4窗口共168行不是test_normal 168任务。
+- dev全invalid_action、goal标签和typed patch字段为0，指标保留不可测/null；要求分别核查执行有效性、转换和goal来源，不无证据改写失败。phone目标值是否有合法公开action/指令来源待查，不将copy表缺失直接认定为未来泄漏。
+- 仅记录不改算法/数据、不新训练或执行环境；GPU约4分20秒只是训练用时，不能代替累计成本。既有6小时上限与环境余额均不自动重置。
+- 验证：Markdown本地链接/围栏与Git空白检查；未为文档变更重跑模型测试。回退可恢复起点文档，实际训练及成本不能回退；SCPS源码须取得实际增量后另行核验合入。
+
 ## 2026-10-18：Stage1终局与GS监督对象核对
 
 - 起点：`3b3ece6`。用户转交自主授权执行后的终局报告：4个CF任务/8可靠组oracle效用全覆盖，GS为0或残差、Scope独立梯度0；按预先条件结束，正式Ours/dev校准/test均未启动。

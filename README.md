@@ -2,7 +2,7 @@
 
 **Goal-Sufficient Dynamic Scope Learning for Reliable Long-Horizon Agents**
 
-当前状态：**Stage1以NO_IDENTIFIED_SCOPE_LEARNING_GAP结束，正式Ours未启动**。见 [终局记录](docs/STAGE1_RESULT.md) 与 [监督对象核对](docs/GS_OBJECTIVE_REVIEW.md)。本轮新增环境578、累计918；不再扩采同类任务、重复Smoke或消耗剩余额度。其他对照、消融和B不运行。修改需及时记入 [变更记录](docs/CHANGELOG.md) 和服务器Markdown日志。
+当前状态：**服务器已报告完成Stage1数据上的首轮Ours/SCPS训练：122条、30 epochs、253 updates；dev预测完成但无有效标签，效果不可测**。见 [运行记录](docs/OURS_SCPS_STAGE1_RUN.md)。6个支持CF组仅13–57字段，未形成B128预算竞争。服务器SCPS源码增量尚未交回MacBook合入，当前GitHub代码不能直接视作该checkpoint的复现版本。其他对照、消融和B不运行；修改需记入 [变更记录](docs/CHANGELOG.md)。
 
 在固定字段预算下，学习足以支持目标保护决策的动作作用范围。
 
@@ -12,7 +12,8 @@ RepairScope v2 面向长程工具 Agent：一次动作既可能推进当前任�
 
 | 文档 | 用途 |
 | --- | --- |
-| [Stage1终局记录](docs/STAGE1_RESULT.md) | 当前状态；真实采集的报告结果、覆盖边界、费用与停止决定 |
+| [Ours/SCPS首轮训练](docs/OURS_SCPS_STAGE1_RUN.md) | 当前状态；训练真实性、支持覆盖、dev标签缺口和源码交接边界 |
+| [Stage1终局记录](docs/STAGE1_RESULT.md) | 历史oracle GS采集阶段的覆盖、费用与停止决定 |
 | [GS监督对象核对](docs/GS_OBJECTIVE_REVIEW.md) | 饱和命题、条件反例及下一步方法设计要求，不授权新实验 |
 | [一次Stage1采集决策](docs/V2_STAGE1_ACQUISITION.md) | 已执行的原申请与停止条件，仅供追溯 |
 | [采集硬额度与当前任务](docs/V2_ACQUISITION_BUDGET.md) | 已完成的持久累计额度、失败计费、F5增量patch与候选计划 |
@@ -51,7 +52,7 @@ flowchart TD
 
 本仓库提供方法实现、单元测试、合成工程 fixture 和实验协议。**这些不构成真实 AppWorld 方法效果、RTX 4090 性能或跨环境泛化证据。** 当前没有可据此宣称的任务提点结果。
 
-用户转交的真实Stage1采集报告中，4个任务的8个可靠CF决策组均已由当前oracle Scope覆盖，独立GS梯度为0，正式训练未启动。该结果限定于本轮组与当前参数；不证明全部任务或训练后所有状态都无信号，也不证明fresh Predictor的错误由Scope遗漏造成。
+历史Stage1采集报告中，4个任务的8个可靠CF组均由oracle Scope覆盖、独立GS梯度0；后续授权的方法修订改用实际预测的SCPS，已报告完成首轮训练。其训练CF损失下降属于拟合证据；dev指标不可测，且B128未约束，仍不能宣称held-out效果或预算竞争下的选择收益。原始运行产物尚未在MacBook复验。
 
 真实训练首先需要正确绑定的公开业务目标、合法可比较反事实分支，以及固定预算下可学习的范围竞争。训练入口会拒绝没有可训练目标决策组的 Goal-Sufficiency 训练；完整数据预审计也不能替代实际 batch 中新增损失、Scope 梯度和参数更新的验收。
 

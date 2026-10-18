@@ -2,15 +2,15 @@
 
 当前方法是 **Goal-Sufficient Dynamic Scope Learning**，当前阶段仅推进 **Ours/A4**。A0–A3、所有消融和B不运行。用户要求在明确边界内自主完成工作，并将每项修改即时记录到Markdown，以便追踪问题。
 
-首先阅读 [Stage1终局记录](docs/STAGE1_RESULT.md) 和 [GS监督对象核对](docs/GS_OBJECTIVE_REVIEW.md)。用户转交的自主授权已执行，Stage1达到NO_IDENTIFIED_SCOPE_LEARNING_GAP停止条件，**当前不再采集、训练或重复诊断**。正式Ours未启动；不以剩余额度继续试到非零GS。方法与完整Eval见 [v2 Proposal](docs/RepairScope_v2_Proposal.md)，旧交接仅供追溯。默认`main`保留当前v2工程资产，历史由Git追溯。
+首先阅读 [Ours/SCPS首轮训练记录](docs/OURS_SCPS_STAGE1_RUN.md)。后续用户授权了预测充分性修订与6小时GPU预算内的一次训练；服务器报告30 epochs/253 updates已完成，但dev全invalid_action、业务指标不可测。旧 [Stage1终局](docs/STAGE1_RESULT.md) 和 [GS审查](docs/GS_OBJECTIVE_REVIEW.md) 保留为历史，不能据旧文档再次声称Ours从未启动。当前优先实际源码交接和dev根因修复，不原样重复训练122条。
 
-正式Ours唯一入口仍是`scripts/repairscope/a4_goal_sufficient.sh`，但本轮科学准入未通过，不能启动。全套main、A0–A3、消融和B不运行。Stage1实际新增环境578、generate138、HTTP133、正式优化0；既有历史340，累计环境918。当前仅整理文档的新增真实费用为0，剩余862不自动续用。
+Ours-only入口仍是`scripts/repairscope/a4_goal_sufficient.sh`；全套main、A0–A3、消融和B不运行。历史Stage1新增环境578、累计918；本次训练报告253优化步、约4分20秒训练时间，该时间不代表全部GPU成本。原6小时GPU总上限不得重置；剩余862环境单位未因本次训练自动获准使用。当前仅整理文档，新增真实费用0。
 
 代码与文档由MacBook提交并推送到默认 `main`（交付分支同步）。服务器保留已有无.git快照和修复，不为读取说明覆盖源码；复用环境，不提交/推送、不重装依赖或影响其他任务。服务器修复输出源码patch和hash，由MacBook后续核验合入。
 
 ## 已知输入缺口
 
-用户最新服务器报告：train natural106条、train CF16 cells、dev natural30条；无dev CF。4个CF任务的8个可靠组oracle restricted=full、独立Scope梯度0。Boundary112个有效标签均为零；fresh Predictor错误不证明输入遗漏或训练后失效。费用与数据hash见终局记录，原始文件未传回MacBook，不能把转录当直接复验。
+服务器SCPS实际源码patch、完整配置和原始运行产物尚未取得，MacBook当前代码不冒充其复现版本。SCPS支持6/8组；phone copy值须核查公开指令/action来源，不从future标签倒填。支持组13–57字段小于B128，不能宣称预算竞争。dev invalid_action须区分真实执行失败与转换bug；没有合法监督的指标保留null。
 
 ## 执行边界
 
@@ -24,4 +24,4 @@
 - 安装/接口等义bug可自行修；新增方法、标签语义、测试协议或预算超出本次已授权范围时停止受影响链路，提交具体问题。不得把本次明确批准的v2改造再当成需要审批的未授权变更。
 - 运行和修复日志继续放 `/root/autodl-tmp/RepairScope-server-notes` 与独立run目录，保留真实SHA、配置、数据/模型hash、失败成本和恢复边界。无凭据、模型权重、大数据或无关文件进Git。正式运行只允许同配置/同数据exact resume，v1不冒充v2续训。
 
-当前阶段以Stage1终局与实际用户后续授权为准，旧预算和方法边界保留。已有ledger、数据、模型与日志不删除，不重写原hash。下一步若继续，只先明确方法监督对象、真实selector梯度路径和失败条件；不把方法修订包装成工程bug直接换loss。完整Proposal保留为历史研究设计，不能自动授权新实验。
+当前以最新运行记录和实际用户授权为准，历史预算、数据、模型、ledger和日志保留，不重写hash。局部可修复问题应自主解决，不把每个失败当整项任务结束；科学指标与权限边界不能跳过。新增采集需要明确总预算；完整Proposal不自动授权新调用。服务器交付实际可转移patch与精简结果，由MacBook核对合入。

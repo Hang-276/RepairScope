@@ -1,5 +1,7 @@
 # RepairScope v2 Stage1终局记录
 
+> 历史阶段说明：本文记录oracle GS采集阶段的停止。后续用户另行授权预测充分性方法修订与训练，最新 [Ours/SCPS运行记录](OURS_SCPS_STAGE1_RUN.md) 已报告训练完成；本文原始结论和费用不回写。
+
 日期：2026-10-18，Asia/Shanghai。**结论：NO_IDENTIFIED_SCOPE_LEARNING_GAP。Stage1已结束；正式Ours、dev校准和test_normal均未启动。**
 
 本记录转述用户提供的服务器报告。MacBook核对了报告中源码hash与已交付版本的对应关系及费用算术，未实时访问服务器、读取原始数据、账本或审计文件。完整转录字段与报告hash见 [结构化记录](results/STAGE1_RESULT.reported.json)。不再要求重新打包历史文件。
