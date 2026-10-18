@@ -2,7 +2,7 @@
 
 当前方法是 **Goal-Sufficient Dynamic Scope Learning**，当前阶段仅推进 **Ours/A4**。A0–A3、所有消融和B不运行。用户要求在明确边界内自主完成工作，并将每项修改即时记录到Markdown，以便追踪问题。
 
-首先阅读 [交付审查与当前服务器更新](docs/V2_HANDOFF_INTEGRATION.md)，再查 [Ours-only自主续接说明](docs/CLAUDE_OURS_ONLY_CONTINUATION.md)中的持续约束。实际交付已收到并核验，当前应用必要工程修复及修订已有费用计划，不重新打包、不重复GS诊断或启动正式实验。方法与完整Eval见 [v2 Proposal](docs/RepairScope_v2_Proposal.md)，旧 [服务器交接](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md) 仅补充接口、路径与历史背景。默认 `main` 是新版方法；历史由Git追溯。
+首先阅读 [采集硬额度与当前任务](docs/V2_ACQUISITION_BUDGET.md)，再查 [Ours-only自主续接说明](docs/CLAUDE_OURS_ONLY_CONTINUATION.md)中的持续约束。服务器F3/F4更新已经报告完成；当前应用F5采集限额并静态整理既定15任务的公开目标/计划，不重新打包、不重复GS诊断或启动正式实验。方法与完整Eval见 [v2 Proposal](docs/RepairScope_v2_Proposal.md)，旧 [服务器交接](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md) 仅补充接口、路径与历史背景。默认 `main` 是新版方法；历史由Git追溯。
 
 正式Ours唯一入口是 `scripts/repairscope/a4_goal_sufficient.sh`，准入、正式数据与明确预算满足后才运行。禁止运行 `run_goal_sufficient_main.sh`（会自动运行其他组）及 `run_goal_sufficient_b.sh`。派生字段修复与一次离线监督判定已完成；前轮3任务上限已到，不自动重置300单位预算，也不追加相同Smoke。当前新增环境/Actor/优化步均为0。
 
@@ -10,7 +10,7 @@
 
 ## 已知输入缺口
 
-用户最新服务器报告：基于0ce975d快照已有F1–F3修复、95项测试与H4硬递推；follow等义标签已恢复，follow 6组与phone 4组在当前权重下oracle GS饱和，真实Predictor仍有错误。MacBook现已核验实际交付并合入F1/F2/A4；F3改为保持padding边界的安全mask，另修复F4完整epoch调度，253项本地CPU工程回归通过。服务器仍需应用当前说明中的增量patch；旧H4/GS收据不冒充新版复验。正式数据、goal map和总预算仍未冻结。
+用户最新服务器报告：F3/F4及新增回归文件after hash与本地一致，33项服务器CPU工程回归通过；旧H4/GS收据不冒充新版复验。MacBook另完成F5共享持久采集账本，313项本地CPU回归通过，服务器尚需应用本轮F5 patch。follow 6组与phone 4组在既有权重下oracle GS饱和、Predictor仍有错误；正式数据、goal map和总预算仍未冻结。
 
 ## 执行边界
 
@@ -24,4 +24,4 @@
 - 安装/接口等义bug可自行修；新增方法、标签语义、测试协议或预算超出本次已授权范围时停止受影响链路，提交具体问题。不得把本次明确批准的v2改造再当成需要审批的未授权变更。
 - 运行和修复日志继续放 `/root/autodl-tmp/RepairScope-server-notes` 与独立run目录，保留真实SHA、配置、数据/模型hash、失败成本和恢复边界。无凭据、模型权重、大数据或无关文件进Git。正式运行只允许同配置/同数据exact resume，v1不冒充v2续训。
 
-当前任务以交付审查与服务器更新说明为准，Ours-only续接说明中的持续约束保留。完整Proposal描述研究设计，不自动授权全部实验；工程测试不提供方法效果保证。
+当前任务以采集硬额度说明为准，Ours-only续接说明中的持续约束保留。真实采集必须配置同一持久账本，不能因切换train/dev/natural/CF或目录重置额度。完整Proposal描述研究设计，不自动授权全部实验；工程测试不提供方法效果保证。

@@ -4,6 +4,24 @@
 
 服务器逐项操作另记 `/root/autodl-tmp/RepairScope-server-notes/CHANGELOG_V2.md`，字段模板见 [自主续接说明第7节](CLAUDE_OURS_ONLY_CONTINUATION.md#7-每项修改必须即时写入markdown变更日志)。服务器日志、原始数据和权重不因这一要求自动加入Git。
 
+## 2026-10-18：采集硬预算落地（F5）
+
+- 起点：`f8c8a90`。用户转交服务器应用收据：F3/F4及两个回归文件after hash与本地一致，报告33项CPU测试通过；不重复旧Smoke/H4/GS诊断。修订计划仍指出采集预算未在调用前强制执行。
+- 修改：新增独立采集持久账本，natural/CF/train/dev共享固定run_id、文件与额度；执行前保存pending预留，成功或已知失败按真实费用结算，未知成本或遗留pending封存停止，不自动重置/重试。真实AppWorld采集必须显式配置预算，fixture无预算保留原工程兼容路径。
+- `collection.py`：natural调用前设置per-step/全局剩余额；CF向branch传per-cell/全局剩余额。先结算cost再解析record，失败文件同时保存known_cost、unknown状态及账本快照；不混用controller reset/Actor/prediction单位。
+- `actor.py`：每次真实HTTP尝试前调用可选预算hook，失败和格式重试均计数；generation和HTTP分开，cache/scripted不伪造HTTP费用。hook不加入策略输入或候选cache key。
+- 验证状态：正在进行纯fixture/mock回归。无真实环境/Actor请求、正式优化或GPU实验；配置接口不代表预算批准。
+- 回退：由起点提交恢复相关模块与配置；已有账本不得删除、重置或用新目录绕过封存。恢复代码不恢复已花额度，旧记录与收据保留原版本。
+
+### F5最终验证与服务器补丁
+
+- 完整本地CPU工程回归：`PYTHONPATH=. ../WMA-Agents/.venv/bin/python -m pytest -q tests/repairscope`，**313 passed in 5.86s**。新增45项账本、15项入口/mock HTTP/崩溃测试；已有合成优化单列，不记真实训练。
+- 只读独立终审无阻塞。环境pending预写、失败费用、未知封存、跨阶段不可重置、HTTP调用前hook及恢复、目录fsync与锁均有回归覆盖；未执行真实AppWorld/Actor/正式GPU。
+- `docs/handoff/2026-10-18-budget/`记录本轮用户转交收据、实际核对项和F5 patch。旧服务器actor仍可能使用`agent.wma_core`，本轮补丁保持该import；同一patch在legacy与规范起点均dry-run/应用通过，after hash匹配各自receipt。
+- patch SHA256=`102c79170ac7ec8af06a18b40de3e940891682ecc3d8933e12257a6e5babb3be`；相关源码与新增测试前后hash见`BUDGET_UPDATE_RECEIPT.json`。本轮不改模型、损失、数据或现有checkpoint。
+- 当前文档`docs/V2_ACQUISITION_BUDGET.md`说明预算接口、固定15任务候选的静态整理和后续边界；费用数值仍是申请，没有因代码实现自动获批。入口不再要求重复F3/F4或导出。
+- 最终校验：13份Markdown的本地链接/围栏、F5源码与patch SHA复核通过；源码与新编文档的Git空白检查通过。用户原样收据中的空白及unified patch上下文按字节留存，排除这两份来源文件的格式空白，不改其hash。
+
 ## 2026-10-18：实际交付核验、工程修复与计划审查
 
 - 起点：`7517df3`。收到用户粘贴的实际补丁、Manifest、完整计划与账本；从文本重建的六个文件逐字节SHA256均与报告一致，三份源码的修改前/后hash也可复现。完整tar和其余payload尚未取得，不能宣称22项在MacBook复核通过。

@@ -11,6 +11,7 @@ from typing import Any, Iterable
 import uuid
 
 from .data import validate_dataset, write_jsonl
+from .acquisition_budget import CollectionBudget
 from .environment import create_environment, load_mapping, normalize_config, official_task_ids
 from .schema import evaluate_goals, field_map, validate_action, validate_transition
 
@@ -89,6 +90,19 @@ def collect(config: dict[str, Any], output_dir: str | Path, actor: Any = None, p
         split = 'test_normal'
     if split not in ('train', 'dev'):
         raise ValueError('Recorded trajectory collection supports train/dev only; use frozen evaluation for official test runs')
+    with CollectionBudget(config) as budget:
+        return _collect(config, output_dir, actor, predictor, budget)
+
+
+def _execute_budgeted(env, action, cap):
+    if cap is not None:
+        env.set_budget_remaining(cap)
+    return env.execute(action)
+
+
+def _collect(config, output_dir, actor, predictor, budget):
+    settings = config.get('collection', {})
+    split = settings.get('split', 'train')
     if config['environment']['backend'] == 'appworld':
         config['environment']['offline_audit'] = True
     if actor is None and not settings.get('action_plans'):
@@ -98,11 +112,12 @@ def collect(config: dict[str, Any], output_dir: str | Path, actor: Any = None, p
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     records, task_summaries = [], []
-    total_cost = 0.
     max_steps = int(settings.get('max_steps', config['environment'].get('max_steps', 50)))
     for task_id in _task_ids(config, split):
+        budget.environment_cap('natural')
         env = create_environment(config, task_id, split, 'rs_collect_' + uuid.uuid4().hex[:12])
-        history, task_cost, task_records = [], 0., []
+        history, task_records = [], []
+        task_cost_before = budget.run_cost
         actor_before = actor.stats() if actor is not None else {}
         start = time.monotonic()
         try:
@@ -117,7 +132,9 @@ def collect(config: dict[str, Any], output_dir: str | Path, actor: Any = None, p
                         break
                     action = deepcopy(actions[step])
                 else:
-                    candidates = actor.generate(state, goals, history, count=1, mode='execute', instruction=public_context)
+                    budget.environment_cap('natural')
+                    candidates = budget.actor_generate(actor, lambda: actor.generate(
+                        state, goals, history, count=1, mode='execute', instruction=public_context))
                     if not candidates:
                         raise ValueError('Frozen Actor returned no candidate action')
                     action = candidates[0]
@@ -125,14 +142,15 @@ def collect(config: dict[str, Any], output_dir: str | Path, actor: Any = None, p
                 action.setdefault('cost', 1)
                 validate_action(action)
                 selected, version = _scope(state, action, config, predictor, history)
-                result = env.execute(action)
+                if budget.active and not callable(getattr(env, 'set_budget_remaining', None)):
+                    raise ValueError('Budgeted collection requires a backend with pre-execution cost limits')
+                # Settle actual execution cost before any label/record parsing.
+                result = budget.environment_call('natural', lambda cap: _execute_budgeted(env, action, cap))
                 record = _record(task_id, split, step, state, action, result, history, goals, selected, version)
                 records.append(record)
                 task_records.append(record)
                 history.append({'state': deepcopy(state), 'action': deepcopy(action)})
                 state = result['state']
-                task_cost += result['cost']
-                total_cost += result['cost']
                 # Preserve each completed execution before another external call.
                 write_jsonl(output / 'transitions.jsonl', records)
                 if result.get('done'):
@@ -140,17 +158,19 @@ def collect(config: dict[str, Any], output_dir: str | Path, actor: Any = None, p
             actor_after = actor.stats() if actor is not None else {}
             actor_delta = {key: actor_after.get(key, 0) - actor_before.get(key, 0)
                            for key in actor_after} if actor_after else {}
-            task_summaries.append({'task_id': task_id, 'steps': len(task_records), 'cost': task_cost,
+            task_summaries.append({'task_id': task_id, 'steps': len(task_records), 'cost': budget.run_cost - task_cost_before,
                                    'duration_seconds': time.monotonic() - start,
                                    'evidence_origin': env.evidence_origin, 'actor': actor_delta})
         except BaseException as error:
             _json_write(output / 'collection_failure.json', {'task_id': task_id, 'error': f'{type(error).__name__}: {error}',
-                        'completed_records': len(records), 'known_cost': total_cost, 'cost_unresolved': isinstance(error, TimeoutError)})
+                        'completed_records': len(records), 'known_cost': budget.run_cost,
+                        'cost_unresolved': budget.cost_unresolved, 'budget': budget.snapshot()})
             raise
         finally:
             env.close()
     summary = {**validate_dataset(records, allow_synthetic=config['environment']['backend'] == 'fixture'),
-               'total_cost': total_cost, 'tasks_completed': task_summaries, 'actor_frozen': True,
+               'total_cost': budget.run_cost, 'tasks_completed': task_summaries, 'actor_frozen': True,
+               'budget': budget.snapshot(),
                'actor': actor.stats() if actor is not None else {},
                'used_for_training': split == 'train',
                'collection_role': 'training' if split == 'train' else 'held_out_recorded_evaluation',
@@ -195,6 +215,12 @@ def collect_counterfactual(config: dict[str, Any], plans: Iterable[dict[str, Any
             raise ValueError('Official dev/test branch records cannot be used for training')
     plans_sha256 = hashlib.sha256(json.dumps(plans, sort_keys=True, separators=(',', ':'),
         ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+    with CollectionBudget(config) as budget:
+        return _collect_counterfactual(config, plans, output_dir, budget, evaluation_only, plans_sha256)
+
+
+def _collect_counterfactual(config, plans, output_dir, budget, evaluation_only, plans_sha256):
+    split = config.get('collection', {}).get('split', 'train')
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     if evaluation_only:
@@ -204,7 +230,6 @@ def collect_counterfactual(config: dict[str, Any], plans: Iterable[dict[str, Any
             'plans_sha256': plans_sha256, 'plans': len(plans),
         })
     records, receipts = [], []
-    total_cost = 0.
     seen_pairs = set()
     for plan in plans:
         task_id = plan['task_id']
@@ -215,16 +240,17 @@ def collect_counterfactual(config: dict[str, Any], plans: Iterable[dict[str, Any
         prefix = deepcopy(plan.get('prefix', []))
         if config['environment']['backend'] == 'appworld' and any('output' not in step or not step.get('fingerprint') for step in prefix):
             raise ValueError('Real counterfactual prefix entries require exact action/output/fingerprint receipts from natural collection')
-        env = create_environment(config, task_id, split, 'rs_cf_' + uuid.uuid4().hex[:12])
-        env.reset()
-        goals = deepcopy(plan.get('goals', env.metadata.get('goals', [])))
         conditions = plan.get('conditions') or {'c0': None}
         if isinstance(conditions, list):
             conditions = {f'c{i}': condition for i, condition in enumerate(conditions)}
         if set(conditions) - {'c0', 'c1'}:
             raise ValueError('Counterfactual conditions must use c0/c1 or a list of at most two legal conditions')
+        budget.environment_cap('cf')
+        env = create_environment(config, task_id, split, 'rs_cf_' + uuid.uuid4().hex[:12])
         prefix_identity = None
         try:
+            env.reset()
+            goals = deepcopy(plan.get('goals', env.metadata.get('goals', [])))
             for condition_name in ('c0', 'c1'):
                 if condition_name not in conditions:
                     continue
@@ -232,8 +258,9 @@ def collect_counterfactual(config: dict[str, Any], plans: Iterable[dict[str, Any
                     action = deepcopy(plan[role])
                     action.setdefault('arguments', {})
                     action.setdefault('cost', 1)
-                    result = env.branch(prefix, action, conditions[condition_name])
-                    total_cost += float(result['cost'])
+                    result = budget.environment_call('cf', lambda cap: (
+                        env.branch(prefix, action, conditions[condition_name], max_cost=cap)
+                        if cap is not None else env.branch(prefix, action, conditions[condition_name])))
                     identity = result.get('prefix_fingerprint') or json.dumps(result.get('prefix_receipts', result.get('prefix_state')), sort_keys=True)
                     if prefix_identity is not None and identity != prefix_identity:
                         raise ValueError('Counterfactual siblings do not have identical replayed prefixes')
@@ -264,7 +291,8 @@ def collect_counterfactual(config: dict[str, Any], plans: Iterable[dict[str, Any
                     _json_write(output / 'receipts.json', receipts)
         except BaseException as error:
             _json_write(output / 'collection_failure.json', {'pair_id': pair_id, 'error': f'{type(error).__name__}: {error}',
-                        'known_cost': total_cost, 'completed_cells': len(records), 'cost_unresolved': True,
+                        'known_cost': budget.run_cost, 'completed_cells': len(records),
+                        'cost_unresolved': budget.cost_unresolved, 'budget': budget.snapshot(),
                         'action': 'Acquisition stopped; failed/timeout branches are never silently retried or assigned zero cost.'})
             raise
         finally:
@@ -272,7 +300,8 @@ def collect_counterfactual(config: dict[str, Any], plans: Iterable[dict[str, Any
     _align_counterfactual_audits(records)
     write_jsonl(output / 'transitions.jsonl', records)
     summary = {**validate_dataset(records, allow_synthetic=config['environment']['backend'] == 'fixture'),
-               'total_cost': total_cost, 'cells': len(records), 'receipts': str((output / 'receipts.json').resolve()),
+               'total_cost': budget.run_cost, 'cells': len(records), 'receipts': str((output / 'receipts.json').resolve()),
+               'budget': budget.snapshot(),
                'eval_only': evaluation_only, 'frozen_query': evaluation_only, 'used_for_training': split == 'train',
                'collection_role': 'held_out_counterfactual_evaluation' if evaluation_only else 'training',
                'plans_sha256': plans_sha256, 'nonadaptive': True,

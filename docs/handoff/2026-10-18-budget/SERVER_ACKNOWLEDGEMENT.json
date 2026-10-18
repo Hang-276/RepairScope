@@ -1,0 +1,21 @@
+{
+  "transport": "user pasted report; no server access",
+  "input_sha256": "a48f0c1b18565c5e3ddcdde458dcf1359a25320d6461e3d311f72006f9a0970e",
+  "previous_patch_sha256": "e619c7cf9ed53abfc2bc9bbc16d1ed37831a682df4b97190e5d2581eab7d4632",
+  "previous_receipt_sha256": "b62694200fb2d0f6afbd3018a0bbf07dfc26e4236512fb48526f8a2b6277279f",
+  "reported_updated_files_match_local": {
+    "repairscope/model.py": "82368a34f1c691060c804ba8e6735a408796f3f84d12d1a828f2435f493b0eb5",
+    "repairscope/training.py": "2856fe3e14349fe0d8106eec92e5c4ec7312653423a762849087dbfb061804fb",
+    "tests/repairscope/test_server_fixes.py": "9b71566a053aa333c3b42b2c84779c5997e8817a36f175a70d22ae4c9cee86f7",
+    "tests/repairscope/test_training_schedule.py": "26178da472bff69bb1742ae03f930e1cc1513309c47bf7d92458e9a788281213"
+  },
+  "server_source_tree_reported_only": "f1e9bb58f0642de8af7c21e0438fab833b325cd24f449117e9628b7bfda77f65",
+  "server_test_reported_only": "33 passed in 7.62s; CPU synthetic",
+  "not_independently_received": {
+    "V2_HANDOFF_INTEGRATION_RECEIPT.md": "37c351b6ada1f2ea19bc20d7c076fafc5097da14eb0a2ad67a021d1965aec51e",
+    "FORMAL_DATA_PLAN.md": "74d846f9...f288 (abbreviated)",
+    "FORMAL_DATA_MANIFEST.json": "60cf0ea7...9748 (abbreviated)"
+  },
+  "formal_ours_started": false,
+  "budget_approved": false
+}

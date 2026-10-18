@@ -1,6 +1,6 @@
 # RepairScope v2：Ours-only 自主续接任务
 
-**状态更新（2026-10-18）：本文件规定的一次离线续接及文件交付已完成，结论仍为FORMAL_INPUTS_NOT_READY，并有NO_IDENTIFIED_SCOPE_LEARNING_GAP。当前执行[工程合入与服务器更新](V2_HANDOFF_INTEGRATION.md)，不要重复下述已完成步骤。本文的Ours-only、预算和变更记录约束继续有效。**
+**状态更新（2026-10-18）：一次离线续接、文件交付及F3/F4服务器更新已完成，结论仍为FORMAL_INPUTS_NOT_READY，并有NO_IDENTIFIED_SCOPE_LEARNING_GAP。当前执行[采集硬额度与F5任务](V2_ACQUISITION_BUDGET.md)，不要重复下述已完成步骤。本文的Ours-only、预算和变更记录约束继续有效。**
 
 本说明保留已完成离线续接的指令与持续执行边界，当前新增任务以顶部链接的结论与交付说明为准。用户要求第一阶段只跑 Ours，并让服务器 Claude 在明确边界内自主推进。完整 Proposal 中的 A0–A3、消融、B 和跨环境评估是后续研究设计，当前均不启动。
 

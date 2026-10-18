@@ -1,0 +1,1225 @@
+--- a/repairscope/actor.py
++++ b/repairscope/actor.py
+@@ -196,6 +196,7 @@
+         self.http_calls = 0
+         self.cache_hits = 0
+         self.last_http_calls = 0
++        self._http_budget_hook = None
+         self.cache: dict = {}
+         self.cache_path = self.config.get("cache_path")
+         if self.cache_path and Path(self.cache_path).exists():
+@@ -213,6 +214,12 @@
+                  "state": public_state(state), "goals": public_goals(goals),
+                  "history": public_history(history), "candidate_count": count, "mode": mode},
+                  ensure_ascii=False, sort_keys=True)}]
++
++    def set_http_budget_hook(self, hook):
++        """Install a pre-request accounting hook without changing policy inputs."""
++        previous = self._http_budget_hook
++        self._http_budget_hook = hook
++        return previous
+ 
+     def _request(self, messages: list[dict], count: int) -> list[dict]:
+         key_name = self.config.get("api_key_env", "OPENAI_API_KEY")
+@@ -229,10 +236,12 @@
+         # once or twice with a larger output cap; both arms share this policy.
+         last_error = None
+         for attempt in range(3):
++            request = urllib.request.Request(url, json.dumps(body).encode(),
++                      {"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
++            if self._http_budget_hook is not None:
++                self._http_budget_hook()
+             self.http_calls += 1
+             self.last_http_calls += 1
+-            request = urllib.request.Request(url, json.dumps(body).encode(),
+-                      {"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+             with urllib.request.urlopen(request, timeout=float(self.config.get("timeout", 120))) as response:
+                 payload = json.load(response)
+             try:
+--- a/repairscope/collection.py
++++ b/repairscope/collection.py
+@@ -11,6 +11,7 @@
+ import uuid
+ 
+ from .data import validate_dataset, write_jsonl
++from .acquisition_budget import CollectionBudget
+ from .environment import create_environment, load_mapping, normalize_config, official_task_ids
+ from .schema import evaluate_goals, field_map, validate_action, validate_transition
+ 
+@@ -89,6 +90,19 @@
+         split = 'test_normal'
+     if split not in ('train', 'dev'):
+         raise ValueError('Recorded trajectory collection supports train/dev only; use frozen evaluation for official test runs')
++    with CollectionBudget(config) as budget:
++        return _collect(config, output_dir, actor, predictor, budget)
++
++
++def _execute_budgeted(env, action, cap):
++    if cap is not None:
++        env.set_budget_remaining(cap)
++    return env.execute(action)
++
++
++def _collect(config, output_dir, actor, predictor, budget):
++    settings = config.get('collection', {})
++    split = settings.get('split', 'train')
+     if config['environment']['backend'] == 'appworld':
+         config['environment']['offline_audit'] = True
+     if actor is None and not settings.get('action_plans'):
+@@ -98,11 +112,12 @@
+     output = Path(output_dir)
+     output.mkdir(parents=True, exist_ok=True)
+     records, task_summaries = [], []
+-    total_cost = 0.
+     max_steps = int(settings.get('max_steps', config['environment'].get('max_steps', 50)))
+     for task_id in _task_ids(config, split):
++        budget.environment_cap('natural')
+         env = create_environment(config, task_id, split, 'rs_collect_' + uuid.uuid4().hex[:12])
+-        history, task_cost, task_records = [], 0., []
++        history, task_records = [], []
++        task_cost_before = budget.run_cost
+         actor_before = actor.stats() if actor is not None else {}
+         start = time.monotonic()
+         try:
+@@ -117,7 +132,9 @@
+                         break
+                     action = deepcopy(actions[step])
+                 else:
+-                    candidates = actor.generate(state, goals, history, count=1, mode='execute', instruction=public_context)
++                    budget.environment_cap('natural')
++                    candidates = budget.actor_generate(actor, lambda: actor.generate(
++                        state, goals, history, count=1, mode='execute', instruction=public_context))
+                     if not candidates:
+                         raise ValueError('Frozen Actor returned no candidate action')
+                     action = candidates[0]
+@@ -125,14 +142,15 @@
+                 action.setdefault('cost', 1)
+                 validate_action(action)
+                 selected, version = _scope(state, action, config, predictor, history)
+-                result = env.execute(action)
++                if budget.active and not callable(getattr(env, 'set_budget_remaining', None)):
++                    raise ValueError('Budgeted collection requires a backend with pre-execution cost limits')
++                # Settle actual execution cost before any label/record parsing.
++                result = budget.environment_call('natural', lambda cap: _execute_budgeted(env, action, cap))
+                 record = _record(task_id, split, step, state, action, result, history, goals, selected, version)
+                 records.append(record)
+                 task_records.append(record)
+                 history.append({'state': deepcopy(state), 'action': deepcopy(action)})
+                 state = result['state']
+-                task_cost += result['cost']
+-                total_cost += result['cost']
+                 # Preserve each completed execution before another external call.
+                 write_jsonl(output / 'transitions.jsonl', records)
+                 if result.get('done'):
+@@ -140,17 +158,19 @@
+             actor_after = actor.stats() if actor is not None else {}
+             actor_delta = {key: actor_after.get(key, 0) - actor_before.get(key, 0)
+                            for key in actor_after} if actor_after else {}
+-            task_summaries.append({'task_id': task_id, 'steps': len(task_records), 'cost': task_cost,
++            task_summaries.append({'task_id': task_id, 'steps': len(task_records), 'cost': budget.run_cost - task_cost_before,
+                                    'duration_seconds': time.monotonic() - start,
+                                    'evidence_origin': env.evidence_origin, 'actor': actor_delta})
+         except BaseException as error:
+             _json_write(output / 'collection_failure.json', {'task_id': task_id, 'error': f'{type(error).__name__}: {error}',
+-                        'completed_records': len(records), 'known_cost': total_cost, 'cost_unresolved': isinstance(error, TimeoutError)})
++                        'completed_records': len(records), 'known_cost': budget.run_cost,
++                        'cost_unresolved': budget.cost_unresolved, 'budget': budget.snapshot()})
+             raise
+         finally:
+             env.close()
+     summary = {**validate_dataset(records, allow_synthetic=config['environment']['backend'] == 'fixture'),
+-               'total_cost': total_cost, 'tasks_completed': task_summaries, 'actor_frozen': True,
++               'total_cost': budget.run_cost, 'tasks_completed': task_summaries, 'actor_frozen': True,
++               'budget': budget.snapshot(),
+                'actor': actor.stats() if actor is not None else {},
+                'used_for_training': split == 'train',
+                'collection_role': 'training' if split == 'train' else 'held_out_recorded_evaluation',
+@@ -195,6 +215,12 @@
+             raise ValueError('Official dev/test branch records cannot be used for training')
+     plans_sha256 = hashlib.sha256(json.dumps(plans, sort_keys=True, separators=(',', ':'),
+         ensure_ascii=False, allow_nan=False).encode()).hexdigest()
++    with CollectionBudget(config) as budget:
++        return _collect_counterfactual(config, plans, output_dir, budget, evaluation_only, plans_sha256)
++
++
++def _collect_counterfactual(config, plans, output_dir, budget, evaluation_only, plans_sha256):
++    split = config.get('collection', {}).get('split', 'train')
+     output = Path(output_dir)
+     output.mkdir(parents=True, exist_ok=True)
+     if evaluation_only:
+@@ -204,7 +230,6 @@
+             'plans_sha256': plans_sha256, 'plans': len(plans),
+         })
+     records, receipts = [], []
+-    total_cost = 0.
+     seen_pairs = set()
+     for plan in plans:
+         task_id = plan['task_id']
+@@ -215,16 +240,17 @@
+         prefix = deepcopy(plan.get('prefix', []))
+         if config['environment']['backend'] == 'appworld' and any('output' not in step or not step.get('fingerprint') for step in prefix):
+             raise ValueError('Real counterfactual prefix entries require exact action/output/fingerprint receipts from natural collection')
+-        env = create_environment(config, task_id, split, 'rs_cf_' + uuid.uuid4().hex[:12])
+-        env.reset()
+-        goals = deepcopy(plan.get('goals', env.metadata.get('goals', [])))
+         conditions = plan.get('conditions') or {'c0': None}
+         if isinstance(conditions, list):
+             conditions = {f'c{i}': condition for i, condition in enumerate(conditions)}
+         if set(conditions) - {'c0', 'c1'}:
+             raise ValueError('Counterfactual conditions must use c0/c1 or a list of at most two legal conditions')
++        budget.environment_cap('cf')
++        env = create_environment(config, task_id, split, 'rs_cf_' + uuid.uuid4().hex[:12])
+         prefix_identity = None
+         try:
++            env.reset()
++            goals = deepcopy(plan.get('goals', env.metadata.get('goals', [])))
+             for condition_name in ('c0', 'c1'):
+                 if condition_name not in conditions:
+                     continue
+@@ -232,8 +258,9 @@
+                     action = deepcopy(plan[role])
+                     action.setdefault('arguments', {})
+                     action.setdefault('cost', 1)
+-                    result = env.branch(prefix, action, conditions[condition_name])
+-                    total_cost += float(result['cost'])
++                    result = budget.environment_call('cf', lambda cap: (
++                        env.branch(prefix, action, conditions[condition_name], max_cost=cap)
++                        if cap is not None else env.branch(prefix, action, conditions[condition_name])))
+                     identity = result.get('prefix_fingerprint') or json.dumps(result.get('prefix_receipts', result.get('prefix_state')), sort_keys=True)
+                     if prefix_identity is not None and identity != prefix_identity:
+                         raise ValueError('Counterfactual siblings do not have identical replayed prefixes')
+@@ -264,7 +291,8 @@
+                     _json_write(output / 'receipts.json', receipts)
+         except BaseException as error:
+             _json_write(output / 'collection_failure.json', {'pair_id': pair_id, 'error': f'{type(error).__name__}: {error}',
+-                        'known_cost': total_cost, 'completed_cells': len(records), 'cost_unresolved': True,
++                        'known_cost': budget.run_cost, 'completed_cells': len(records),
++                        'cost_unresolved': budget.cost_unresolved, 'budget': budget.snapshot(),
+                         'action': 'Acquisition stopped; failed/timeout branches are never silently retried or assigned zero cost.'})
+             raise
+         finally:
+@@ -272,7 +300,8 @@
+     _align_counterfactual_audits(records)
+     write_jsonl(output / 'transitions.jsonl', records)
+     summary = {**validate_dataset(records, allow_synthetic=config['environment']['backend'] == 'fixture'),
+-               'total_cost': total_cost, 'cells': len(records), 'receipts': str((output / 'receipts.json').resolve()),
++               'total_cost': budget.run_cost, 'cells': len(records), 'receipts': str((output / 'receipts.json').resolve()),
++               'budget': budget.snapshot(),
+                'eval_only': evaluation_only, 'frozen_query': evaluation_only, 'used_for_training': split == 'train',
+                'collection_role': 'held_out_counterfactual_evaluation' if evaluation_only else 'training',
+                'plans_sha256': plans_sha256, 'nonadaptive': True,
+--- /dev/null
++++ b/repairscope/acquisition_budget.py
+@@ -0,0 +1,316 @@
++"""Persistent, separate environment and Actor caps for recorded acquisition.
++
++The lock covers a complete collection command.  Natural collection and every
++counterfactual command use the same ledger, so starting a new phase never grants
++a new allowance.  Only cost receipts and operation metadata enter this file.
++"""
++from __future__ import annotations
++
++from collections.abc import Callable, Mapping
++from copy import deepcopy
++from datetime import datetime, timezone
++import fcntl
++import json
++import math
++import os
++from pathlib import Path
++import re
++from typing import Any
++
++
++class AcquisitionBudgetExceeded(RuntimeError):
++    """An external call was blocked before it could exceed its allowance."""
++
++
++class CollectionBudgetError(RuntimeError):
++    """A ledger is inconsistent, unresolved, or cannot guarantee a hard cap."""
++
++
++_LIMIT_KEYS = (
++    'environment_limit', 'natural_step_limit', 'cf_cell_limit',
++    'actor_generation_limit', 'actor_http_limit',
++)
++_RESOURCE_LIMIT = {
++    'environment': 'environment_limit',
++    'actor_generations': 'actor_generation_limit',
++    'actor_http_attempts': 'actor_http_limit',
++}
++_EPSILON = 1e-9
++_NUMBER = r'(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
++_CHARGED = re.compile(r'(?:^|[;\s])charged_cost\s*[=:]\s*(' + _NUMBER + r')(?=$|[;\s])')
++_UNRESOLVED = re.compile(r'(?:^|[;\s])cost_unresolved\s*[=:]\s*true(?=$|[;\s])', re.I)
++
++
++def _cost(value: Any) -> float | None:
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        return None
++    try:
++        value = float(value)
++    except OverflowError:
++        return None
++    return value if math.isfinite(value) and value >= 0 else None
++
++
++def _time() -> str:
++    return datetime.now(timezone.utc).isoformat()
++
++
++class CollectionBudget:
++    """One acquisition transaction with persistent cross-command allowances.
++
++    AppWorld requires an explicit ``collection.budget`` mapping.  Fixture runs
++    without one keep the previous in-memory, uncapped behavior.  ``run_cost`` is
++    the known environment cost incurred by this invocation, not lifetime spend;
++    an unresolved operation may have an additional, deliberately unknown cost.
++    """
++
++    def __init__(self, config: Mapping[str, Any]):
++        settings = config.get('collection', {})
++        budget = settings.get('budget')
++        self.active = budget is not None
++        self.run_cost = 0.0
++        self._entered = False
++        self._lock = None
++        self.path: Path | None = None
++        self._limits: dict[str, int | float] = {}
++        self._run_id: str | None = None
++        if not self.active:
++            if config.get('environment', {}).get('backend', 'appworld') != 'fixture':
++                raise CollectionBudgetError('AppWorld acquisition requires explicit collection.budget hard limits')
++        else:
++            if not isinstance(budget, Mapping):
++                raise CollectionBudgetError('collection.budget must be a mapping')
++            missing = [key for key in ('ledger_path', 'run_id', *_LIMIT_KEYS) if key not in budget]
++            if missing:
++                raise CollectionBudgetError('collection.budget requires explicit fields: ' + ', '.join(missing))
++            try:
++                self.path = Path(budget['ledger_path']).expanduser()
++            except (TypeError, ValueError) as error:
++                raise CollectionBudgetError('collection.budget.ledger_path must be an absolute path') from error
++            if not self.path.is_absolute():
++                raise CollectionBudgetError('collection.budget.ledger_path must be an absolute path')
++            self.path = self.path.resolve()
++            self._run_id = budget['run_id']
++            if not isinstance(self._run_id, str) or not self._run_id.strip():
++                raise CollectionBudgetError('collection.budget.run_id must be a nonempty string')
++            for key in _LIMIT_KEYS:
++                value = _cost(budget[key])
++                if value is None:
++                    raise CollectionBudgetError(f'collection.budget.{key} must be finite and nonnegative')
++                if key.startswith('actor_'):
++                    if type(budget[key]) is not int:
++                        raise CollectionBudgetError(f'collection.budget.{key} must be an integer count')
++                    self._limits[key] = budget[key]
++                else:
++                    self._limits[key] = value
++        self._data: dict[str, Any] = {
++            'format_version': 1, 'run_id': self._run_id, 'limits': deepcopy(self._limits),
++            'spent': {'environment': 0.0, 'actor_generations': 0, 'actor_http_attempts': 0},
++            'pending': None, 'cost_unresolved': False, 'sealed': False,
++            'seal_reason': None, 'events': [],
++        }
++
++    @property
++    def cost_unresolved(self) -> bool:
++        return self._data['cost_unresolved']
++
++    def __enter__(self) -> 'CollectionBudget':
++        if self._entered:
++            raise CollectionBudgetError('CollectionBudget is already open')
++        self.run_cost = 0.0
++        try:
++            if self.active:
++                assert self.path is not None
++                self.path.parent.mkdir(parents=True, exist_ok=True)
++                self._lock = self.path.with_name(self.path.name + '.lock').open('a+', encoding='utf-8')
++                try:
++                    fcntl.flock(self._lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
++                except BlockingIOError as error:
++                    raise CollectionBudgetError('Acquisition ledger is already in use; no external call was made') from error
++                if self.path.exists():
++                    try:
++                        loaded = json.loads(self.path.read_text(encoding='utf-8'))
++                    except (OSError, ValueError) as error:
++                        raise CollectionBudgetError('Acquisition ledger is unreadable; refusing to reset it') from error
++                    self._validate_loaded(loaded)
++                    self._data = loaded
++                else:
++                    self._persist()
++                if self._data['pending'] is not None:
++                    self._seal('unresolved_pending_operation', unresolved=True)
++                    self._persist()
++                if self._data['cost_unresolved'] and not self._data['sealed']:
++                    self._seal('unresolved_cost', unresolved=True)
++                    self._persist()
++                if self._data['sealed']:
++                    raise CollectionBudgetError('Acquisition ledger is sealed: ' + str(self._data['seal_reason']))
++            self._entered = True
++            return self
++        except BaseException:
++            self._release()
++            raise
++
++    def __exit__(self, exc_type, exc_value, traceback) -> None:
++        self._entered = False
++        self._release()
++
++    def _release(self) -> None:
++        if self._lock is not None:
++            try:
++                fcntl.flock(self._lock.fileno(), fcntl.LOCK_UN)
++            finally:
++                self._lock.close()
++                self._lock = None
++
++    def _validate_loaded(self, data: Any) -> None:
++        if not isinstance(data, dict) or data.get('format_version') != 1:
++            raise CollectionBudgetError('Unsupported acquisition ledger; refusing to reset it')
++        if data.get('run_id') != self._run_id or data.get('limits') != self._limits:
++            raise CollectionBudgetError('Acquisition run_id and limits are immutable for an existing ledger')
++        spent = data.get('spent')
++        if not isinstance(spent, dict) or set(spent) != set(_RESOURCE_LIMIT):
++            raise CollectionBudgetError('Invalid acquisition ledger counters')
++        for resource, limit in _RESOURCE_LIMIT.items():
++            value = _cost(spent[resource])
++            if value is None or (resource != 'environment' and type(spent[resource]) is not int):
++                raise CollectionBudgetError('Invalid acquisition ledger counters')
++            if value > self._limits[limit] + _EPSILON and data.get('sealed') is not True:
++                raise CollectionBudgetError('Acquisition ledger exceeds its limits without a seal')
++        if (type(data.get('sealed')) is not bool or type(data.get('cost_unresolved')) is not bool
++                or not isinstance(data.get('events'), list) or 'pending' not in data
++                or (data['pending'] is not None and not isinstance(data['pending'], dict))):
++            raise CollectionBudgetError('Invalid acquisition ledger state')
++
++    def _persist(self) -> None:
++        if not self.active:
++            return
++        assert self.path is not None
++        temporary = self.path.with_name(self.path.name + '.tmp')
++        with temporary.open('w', encoding='utf-8') as stream:
++            json.dump(self._data, stream, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False)
++            stream.write('\n')
++            stream.flush()
++            os.fsync(stream.fileno())
++        os.replace(temporary, self.path)
++        directory = os.open(self.path.parent, os.O_RDONLY)
++        try:
++            os.fsync(directory)
++        finally:
++            os.close(directory)
++
++    def _ensure_open(self) -> None:
++        if not self._entered:
++            raise CollectionBudgetError('Use CollectionBudget as a context manager')
++        if self._data['sealed'] or self._data['cost_unresolved'] or self._data['pending'] is not None:
++            raise CollectionBudgetError('Acquisition ledger is sealed or has an unresolved operation')
++
++    def _remaining(self, resource: str) -> float | None:
++        if not self.active:
++            return None
++        return max(0.0, self._limits[_RESOURCE_LIMIT[resource]] - self._data['spent'][resource])
++
++    def snapshot(self) -> dict[str, Any]:
++        return {**deepcopy(self._data), 'active': self.active,
++                'ledger_path': str(self.path) if self.path is not None else None,
++                'remaining': {resource: self._remaining(resource) for resource in _RESOURCE_LIMIT},
++                'run_cost': self.run_cost}
++
++    def _seal(self, reason: str, *, unresolved: bool = False) -> None:
++        self._data.update(sealed=True, seal_reason=reason)
++        self._data['cost_unresolved'] = self._data['cost_unresolved'] or unresolved
++
++    def _event(self, **fields: Any) -> dict[str, Any]:
++        event = {'id': len(self._data['events']) + 1, 'time_utc': _time(), **fields}
++        self._data['events'].append(event)
++        return event
++
++    def _settle_environment(self, event: dict[str, Any], cost: float | None,
++                            *, failed: bool, unresolved: bool, cap: float | None) -> None:
++        event['status'] = 'unresolved' if unresolved else 'failed' if failed else 'completed'
++        event['cost_unresolved'] = unresolved
++        if cost is not None and (not unresolved or cost > 0):
++            event['known_cost_lower_bound' if unresolved else 'charged_cost'] = cost
++            self._data['spent']['environment'] += cost
++            self.run_cost += cost
++        event['cumulative_environment_cost'] = self._data['spent']['environment']
++        if unresolved:
++            self._seal('unresolved_environment_cost', unresolved=True)
++        else:
++            self._data['pending'] = None
++        if cost is not None and cap is not None and cost > cap + _EPSILON:
++            self._seal('environment_cost_overrun', unresolved=unresolved)
++        self._persist()
++
++    @staticmethod
++    def _failed_cost(error: BaseException) -> tuple[float | None, bool]:
++        text = str(error)
++        unresolved = bool(getattr(error, 'cost_unresolved', False)) or bool(_UNRESOLVED.search(text))
++        value = _cost(getattr(error, 'charged_cost', None))
++        if value is None:
++            matches = _CHARGED.findall(text)
++            if len(matches) == 1:
++                value = _cost(float(matches[0]))
++        return value, unresolved or value is None
++
++    def environment_cap(self, kind: str) -> float | None:
++        """Check affordability before, for example, asking an Actor for a move."""
++        self._ensure_open()
++        if kind not in ('natural', 'cf'):
++            raise ValueError('Acquisition environment kind must be natural or cf')
++        cap = None
++        if self.active:
++            cap = min(self._remaining('environment'),
++                      self._limits['natural_step_limit' if kind == 'natural' else 'cf_cell_limit'])
++            if cap < 1:
++                raise AcquisitionBudgetExceeded('Environment allowance exhausted before ' + kind)
++        return cap
++
++    def environment_call(self, kind: str, call: Callable[[float | None], Any]) -> Any:
++        cap = self.environment_cap(kind)
++        event = self._event(resource='environment', kind=kind, status='pending', cap=cap)
++        self._data['pending'] = {'event_id': event['id'], 'kind': kind, 'cap': cap}
++        self._persist()
++        try:
++            result = call(cap)
++        except BaseException as error:
++            cost, unresolved = self._failed_cost(error)
++            event['error_type'] = type(error).__name__
++            self._settle_environment(event, cost, failed=True, unresolved=unresolved, cap=cap)
++            raise
++        cost = _cost(result.get('cost')) if isinstance(result, Mapping) else None
++        unresolved = cost is None or bool(result.get('cost_unresolved', False))
++        self._settle_environment(event, cost, failed=False, unresolved=unresolved, cap=cap)
++        if unresolved:
++            raise CollectionBudgetError('Environment returned no resolved finite actual cost; acquisition ledger sealed')
++        if self._data['sealed']:
++            raise AcquisitionBudgetExceeded('Environment exceeded its hard cap; actual cost recorded and ledger sealed')
++        return result
++
++    def _charge_actor(self, resource: str) -> None:
++        self._ensure_open()
++        remaining = self._remaining(resource)
++        if remaining is not None and remaining < 1:
++            raise AcquisitionBudgetExceeded(resource + ' allowance exhausted before external call')
++        self._data['spent'][resource] += 1
++        self._event(resource=resource, kind=resource, status='charged', units=1,
++                    cumulative_cost=self._data['spent'][resource])
++        self._persist()
++
++    def actor_generate(self, actor: Any, call: Callable[[], Any]) -> Any:
++        self._ensure_open()
++        setter = getattr(actor, 'set_http_budget_hook', None)
++        if self.active and not callable(setter):
++            raise CollectionBudgetError('Actor must support set_http_budget_hook for pre-request hard limits')
++        installed = callable(setter)
++        previous = None
++        def charge_http():
++            if previous is not None:
++                previous()
++            self._charge_actor('actor_http_attempts')
++        previous = setter(charge_http) if installed else None
++        try:
++            self._charge_actor('actor_generations')
++            return call()
++        finally:
++            if installed:
++                setter(previous)
+--- /dev/null
++++ b/tests/repairscope/test_acquisition_ledger.py
+@@ -0,0 +1,372 @@
++"""No-resource regressions for persistent acquisition hard caps."""
++import json
++from types import SimpleNamespace
++
++import pytest
++
++from repairscope.acquisition_budget import (
++    AcquisitionBudgetExceeded, CollectionBudget, CollectionBudgetError,
++)
++
++
++def _config(tmp_path, **limits):
++    return {'environment': {'backend': 'fixture'}, 'collection': {'budget': {
++        'ledger_path': str(tmp_path / 'acquisition.json'), 'run_id': 'bounded-run',
++        'environment_limit': 12, 'natural_step_limit': 4, 'cf_cell_limit': 8,
++        'actor_generation_limit': 3, 'actor_http_limit': 4, **limits,
++    }}}
++
++
++def _disk(config):
++    return json.loads(open(config['collection']['budget']['ledger_path']).read())
++
++
++def _raise(error):
++    raise error
++
++
++class _Actor:
++    def __init__(self):
++        self.hook = None
++        self.sent = 0
++
++    def set_http_budget_hook(self, hook):
++        previous, self.hook = self.hook, hook
++        return previous
++
++    def generate(self, attempts=1):
++        for _ in range(attempts):
++            if self.hook is not None:
++                self.hook()
++            self.sent += 1
++        return ['candidate']
++
++
++def test_appworld_requires_explicit_budget_and_fixture_legacy_is_uncapped():
++    with pytest.raises(CollectionBudgetError, match='requires explicit'):
++        CollectionBudget({'environment': {'backend': 'appworld'}})
++    with CollectionBudget({'environment': {'backend': 'fixture'}}) as budget:
++        assert budget.active is False
++        assert budget.environment_cap('natural') is None
++        assert budget.environment_call('cf', lambda cap: {'cost': 19}) == {'cost': 19}
++        assert budget.run_cost == 19
++        assert budget.snapshot()['spent']['environment'] == 19
++        assert budget.snapshot()['remaining']['environment'] is None
++
++
++@pytest.mark.parametrize('missing', ['ledger_path', 'run_id', 'environment_limit',
++                                    'natural_step_limit', 'cf_cell_limit',
++                                    'actor_generation_limit', 'actor_http_limit'])
++def test_every_budget_field_must_be_explicit(tmp_path, missing):
++    config = _config(tmp_path)
++    del config['collection']['budget'][missing]
++    with pytest.raises(CollectionBudgetError, match=missing):
++        CollectionBudget(config)
++
++
++@pytest.mark.parametrize(('field', 'value'), [
++    ('environment_limit', float('inf')), ('environment_limit', -1),
++    ('natural_step_limit', True), ('cf_cell_limit', '8'),
++    ('actor_generation_limit', 3.0), ('actor_http_limit', False),
++    ('ledger_path', 'relative.json'), ('run_id', ''),
++])
++def test_invalid_explicit_budget_is_rejected(tmp_path, field, value):
++    with pytest.raises(CollectionBudgetError):
++        CollectionBudget(_config(tmp_path, **{field: value}))
++
++
++def test_caps_and_pending_receipt_precede_side_effects(tmp_path):
++    config = _config(tmp_path, environment_limit=10)
++    with CollectionBudget(config) as budget:
++        def execute(cap):
++            receipt = _disk(config)
++            assert receipt['pending'] == {'event_id': 1, 'kind': 'natural', 'cap': 4}
++            assert receipt['events'][0]['status'] == 'pending'
++            assert receipt['spent']['environment'] == 0
++            assert cap == 4
++            return {'cost': 3, 'state': 'private observation is not a ledger field'}
++        budget.environment_call('natural', execute)
++        assert budget.environment_cap('cf') == 7
++        assert budget.run_cost == 3
++    receipt = _disk(config)
++    assert receipt['pending'] is None
++    assert receipt['spent']['environment'] == 3
++    assert 'private observation' not in json.dumps(receipt)
++
++
++def test_new_phase_loads_spend_without_reset_and_run_cost_is_local(tmp_path):
++    config = _config(tmp_path, environment_limit=7)
++    with CollectionBudget(config) as natural:
++        natural.environment_call('natural', lambda cap: {'cost': 4})
++    with CollectionBudget(config) as cf:
++        assert cf.run_cost == 0
++        assert cf.environment_cap('cf') == 3
++        cf.environment_call('cf', lambda cap: {'cost': cap})
++        assert cf.run_cost == 3
++        assert cf.snapshot()['spent']['environment'] == 7
++        with pytest.raises(AcquisitionBudgetExceeded):
++            cf.environment_call('natural', lambda cap: pytest.fail('unaffordable call executed'))
++    assert len(_disk(config)['events']) == 2
++
++
++def test_preflight_is_read_only_and_rejects_fractional_or_zero_caps(tmp_path):
++    config = _config(tmp_path, natural_step_limit=.5)
++    with CollectionBudget(config) as budget:
++        before = budget.snapshot()
++        with pytest.raises(AcquisitionBudgetExceeded):
++            budget.environment_cap('natural')
++        assert budget.snapshot() == before
++        assert budget.environment_cap('cf') == 8
++        assert budget.snapshot() == before
++        with pytest.raises(ValueError, match='natural or cf'):
++            budget.environment_cap('typo')
++
++
++@pytest.mark.parametrize('changed', [{'run_id': 'new-run'}, {'environment_limit': 13},
++                                    {'cf_cell_limit': 9}, {'actor_http_limit': 5}])
++def test_existing_run_identity_and_limits_cannot_be_reset(tmp_path, changed):
++    config = _config(tmp_path)
++    with CollectionBudget(config) as budget:
++        budget.environment_call('natural', lambda cap: {'cost': 2})
++    before = _disk(config)
++    with pytest.raises(CollectionBudgetError, match='immutable'):
++        with CollectionBudget(_config(tmp_path, **changed)):
++            pytest.fail('different allowance reused existing ledger')
++    assert _disk(config) == before
++
++
++def test_corrupt_ledger_is_not_recreated(tmp_path):
++    config = _config(tmp_path)
++    path = tmp_path / 'acquisition.json'
++    path.write_text('{interrupted/corrupt')
++    with pytest.raises(CollectionBudgetError, match='refusing to reset'):
++        with CollectionBudget(config):
++            pytest.fail('corrupt ledger accepted')
++    assert path.read_text() == '{interrupted/corrupt'
++
++
++def test_one_command_holds_nonblocking_process_lock(tmp_path):
++    config = _config(tmp_path)
++    with CollectionBudget(config):
++        with pytest.raises(CollectionBudgetError, match='already in use'):
++            with CollectionBudget(config):
++                pytest.fail('concurrent acquisition obtained lock')
++    with CollectionBudget(config) as reopened:
++        assert reopened.snapshot()['spent']['environment'] == 0
++
++
++def test_path_aliases_use_the_same_ledger_and_lock(tmp_path):
++    real = tmp_path / 'real'
++    real.mkdir()
++    alias = tmp_path / 'alias'
++    alias.symlink_to(real, target_is_directory=True)
++    config = _config(real)
++    with CollectionBudget(config) as budget:
++        budget.environment_call('natural', lambda cap: {'cost': 2})
++        with pytest.raises(CollectionBudgetError, match='already in use'):
++            with CollectionBudget(_config(alias)):
++                pytest.fail('path alias bypassed the ledger lock')
++    with CollectionBudget(_config(alias)) as reopened:
++        assert reopened.snapshot()['spent']['environment'] == 2
++        assert reopened.snapshot()['ledger_path'] == str(real / 'acquisition.json')
++
++
++def test_known_failed_cost_is_settled_once_and_can_be_read_after_failure(tmp_path):
++    config = _config(tmp_path)
++    error = RuntimeError('opaque failure')
++    error.charged_cost = 3
++    budget = CollectionBudget(config)
++    with pytest.raises(RuntimeError, match='opaque failure'):
++        with budget:
++            budget.environment_call('cf', lambda cap: _raise(error))
++    assert budget.run_cost == 3
++    assert budget.cost_unresolved is False
++    assert _disk(config)['spent']['environment'] == 3
++    assert _disk(config)['events'][0]['status'] == 'failed'
++    with CollectionBudget(config) as reopened:
++        assert reopened.environment_cap('cf') == 8
++
++
++def test_fixture_zero_cost_preexecution_refusal_is_recognized(tmp_path):
++    config = _config(tmp_path)
++    with CollectionBudget(config) as budget:
++        with pytest.raises(ValueError, match='charged_cost=0'):
++            budget.environment_call('cf', lambda cap: _raise(ValueError('Branch would exceed max_cost; charged_cost=0')))
++        assert budget.run_cost == 0
++        assert budget.cost_unresolved is False
++        assert budget.snapshot()['events'][0]['charged_cost'] == 0
++
++
++@pytest.mark.parametrize('error', [
++    TimeoutError('no receipt'), RuntimeError('charged_cost=0junk'),
++    RuntimeError('charged_cost=0; cost_unresolved=true'),
++])
++def test_unknown_cost_is_never_mistaken_for_zero_and_blocks_restart(tmp_path, error):
++    config = _config(tmp_path)
++    budget = CollectionBudget(config)
++    with pytest.raises(type(error)):
++        with budget:
++            budget.environment_call('cf', lambda cap: _raise(error))
++    assert budget.cost_unresolved is True
++    event = _disk(config)['events'][0]
++    assert event['status'] == 'unresolved'
++    assert 'charged_cost' not in event
++    assert 'known_cost_lower_bound' not in event
++    with pytest.raises(CollectionBudgetError, match='sealed'):
++        with CollectionBudget(config):
++            pytest.fail('unknown operation was automatically resumed')
++
++
++def test_unresolved_error_preserves_positive_known_lower_bound_without_resolving(tmp_path):
++    config = _config(tmp_path)
++    error = RuntimeError('failed after prefix')
++    error.charged_cost, error.cost_unresolved = 3, True
++    budget = CollectionBudget(config)
++    with pytest.raises(RuntimeError):
++        with budget:
++            budget.environment_call('cf', lambda cap: _raise(error))
++    assert budget.cost_unresolved is True
++    assert budget.run_cost == 3
++    event = _disk(config)['events'][0]
++    assert event['known_cost_lower_bound'] == 3
++    assert 'charged_cost' not in event
++    assert _disk(config)['spent']['environment'] == 3
++    with pytest.raises(CollectionBudgetError):
++        with CollectionBudget(config):
++            pass
++    assert _disk(config)['spent']['environment'] == 3
++
++
++@pytest.mark.parametrize('result', [{}, {'cost': float('nan')}, {'cost': True}, {'cost': -1}])
++def test_missing_or_invalid_actual_cost_seals_instead_of_estimating(tmp_path, result):
++    config = _config(tmp_path)
++    budget = CollectionBudget(config)
++    with pytest.raises(CollectionBudgetError, match='finite actual cost'):
++        with budget:
++            budget.environment_call('natural', lambda cap: result)
++    assert budget.cost_unresolved is True
++    assert 'charged_cost' not in _disk(config)['events'][0]
++
++
++def test_result_with_explicit_unknown_flag_cannot_claim_zero_actual_cost(tmp_path):
++    config = _config(tmp_path)
++    budget = CollectionBudget(config)
++    with pytest.raises(CollectionBudgetError):
++        with budget:
++            budget.environment_call('natural', lambda cap: {'cost': 0, 'cost_unresolved': True})
++    assert budget.cost_unresolved
++    assert 'charged_cost' not in _disk(config)['events'][0]
++
++
++def test_backend_overrun_keeps_actual_cost_and_permanently_seals(tmp_path):
++    config = _config(tmp_path, environment_limit=3, natural_step_limit=2)
++    budget = CollectionBudget(config)
++    with pytest.raises(AcquisitionBudgetExceeded, match='actual cost recorded'):
++        with budget:
++            budget.environment_call('natural', lambda cap: {'cost': 4})
++    assert budget.run_cost == 4
++    assert budget.cost_unresolved is False
++    assert _disk(config)['spent']['environment'] == 4
++    assert _disk(config)['seal_reason'] == 'environment_cost_overrun'
++    with pytest.raises(CollectionBudgetError, match='sealed'):
++        with CollectionBudget(config):
++            pass
++
++
++def test_loaded_pending_is_sealed_without_charging_reservation_as_actual(tmp_path):
++    config = _config(tmp_path)
++    with CollectionBudget(config):
++        pass
++    disk = _disk(config)
++    disk['pending'] = {'event_id': 1, 'kind': 'cf', 'cap': 8}
++    (tmp_path / 'acquisition.json').write_text(json.dumps(disk))
++    budget = CollectionBudget(config)
++    with pytest.raises(CollectionBudgetError, match='sealed'):
++        with budget:
++            pass
++    assert budget.cost_unresolved is True
++    assert budget.run_cost == 0
++    assert _disk(config)['spent']['environment'] == 0
++    assert _disk(config)['pending']['cap'] == 8
++
++
++def test_actor_counts_generations_separately_and_restores_existing_hook(tmp_path):
++    config = _config(tmp_path)
++    actor = _Actor()
++    old_attempts = []
++    previous = actor.hook = lambda: old_attempts.append('attempt')
++    with CollectionBudget(config) as budget:
++        assert budget.actor_generate(actor, lambda: actor.generate(attempts=2)) == ['candidate']
++        assert actor.hook is previous
++        assert old_attempts == ['attempt', 'attempt']
++        assert budget.snapshot()['spent'] == {
++            'environment': 0, 'actor_generations': 1, 'actor_http_attempts': 2}
++        assert budget.actor_generate(actor, lambda: ['cache hit']) == ['cache hit']
++        assert budget.snapshot()['spent']['actor_generations'] == 2
++        assert budget.snapshot()['spent']['actor_http_attempts'] == 2
++    with CollectionBudget(config) as resumed:
++        resumed.actor_generate(actor, lambda: ['scripted'])
++        with pytest.raises(AcquisitionBudgetExceeded, match='actor_generations'):
++            resumed.actor_generate(actor, lambda: pytest.fail('over-budget generation executed'))
++        assert actor.hook is previous
++        assert resumed.snapshot()['spent']['actor_generations'] == 3
++
++
++def test_previous_actor_hook_can_still_block_http_and_is_restored(tmp_path):
++    config = _config(tmp_path)
++    actor = _Actor()
++    previous = actor.hook = lambda: _raise(RuntimeError('previous allowance exhausted'))
++    with CollectionBudget(config) as budget:
++        with pytest.raises(RuntimeError, match='previous allowance'):
++            budget.actor_generate(actor, actor.generate)
++        assert budget.snapshot()['spent']['actor_generations'] == 1
++        assert budget.snapshot()['spent']['actor_http_attempts'] == 0
++        assert actor.hook is previous
++        assert actor.sent == 0
++
++
++def test_actor_http_retry_cannot_send_past_its_cap_and_exception_restores_hook(tmp_path):
++    config = _config(tmp_path, actor_http_limit=1)
++    actor = _Actor()
++    budget = CollectionBudget(config)
++    with pytest.raises(AcquisitionBudgetExceeded, match='actor_http_attempts'):
++        with budget:
++            budget.actor_generate(actor, lambda: actor.generate(attempts=3))
++    assert actor.sent == 1
++    assert actor.hook is None
++    assert _disk(config)['spent']['actor_http_attempts'] == 1
++    assert _disk(config)['spent']['actor_generations'] == 1
++
++
++def test_http_failure_is_already_charged_without_recording_error_secrets(tmp_path):
++    config = _config(tmp_path)
++    actor = _Actor()
++    def failed_request():
++        actor.hook()
++        assert _disk(config)['spent']['actor_http_attempts'] == 1
++        raise RuntimeError('secret token and private content')
++    with CollectionBudget(config) as budget:
++        with pytest.raises(RuntimeError, match='secret token'):
++            budget.actor_generate(actor, failed_request)
++    assert actor.hook is None
++    assert 'secret token' not in json.dumps(_disk(config))
++
++
++def test_active_budget_rejects_uncontrolled_actor_without_charging_generation(tmp_path):
++    config = _config(tmp_path)
++    with CollectionBudget(config) as budget:
++        with pytest.raises(CollectionBudgetError, match='set_http_budget_hook'):
++            budget.actor_generate(SimpleNamespace(last_http_calls=0), lambda: pytest.fail('uncontrolled Actor called'))
++        assert budget.snapshot()['spent']['actor_generations'] == 0
++
++
++def test_budget_methods_require_context_and_snapshot_is_independent(tmp_path):
++    budget = CollectionBudget(_config(tmp_path))
++    with pytest.raises(CollectionBudgetError, match='context manager'):
++        budget.environment_cap('cf')
++    with budget:
++        snapshot = budget.snapshot()
++        snapshot['spent']['environment'] = 999
++        snapshot['events'].append({'secret': 'not persistent'})
++        assert budget.snapshot()['spent']['environment'] == 0
++        assert budget.snapshot()['events'] == []
+--- /dev/null
++++ b/tests/repairscope/test_acquisition_budget.py
+@@ -0,0 +1,318 @@
++"""Hard acquisition limits survive partial failures and collection restarts.
++
++These are fixture/transport regressions; they perform no AppWorld or HTTP calls.
++"""
++from copy import deepcopy
++from io import BytesIO
++import json
++import os
++from pathlib import Path
++import subprocess
++import sys
++
++import pytest
++
++import repairscope.actor as actor_module
++import repairscope.collection as collection
++from repairscope.acquisition_budget import AcquisitionBudgetExceeded, CollectionBudgetError
++from repairscope.actor import FrozenActor
++from repairscope.data import read_jsonl
++from repairscope.environment import EnvironmentExecutionError
++from repairscope.fixtures import FixtureEnv
++
++
++def budget_config(tmp_path, *, actions=None, **limits):
++    budget = {
++        'ledger_path': str((tmp_path / 'acquisition_ledger.json').resolve()),
++        'run_id': 'hard-budget-regression',
++        'environment_limit': 10,
++        'natural_step_limit': 5,
++        'cf_cell_limit': 5,
++        'actor_generation_limit': 10,
++        'actor_http_limit': 10,
++    }
++    budget.update(limits)
++    return {
++        'environment': {'backend': 'fixture', 'offline_audit': True},
++        'collection': {
++            'split': 'train', 'task_ids': ['fixture-0'], 'max_steps': 2,
++            'action_plans': {'actions': actions if actions is not None else [noop()]},
++            'budget': budget,
++        },
++    }
++
++
++def noop():
++    return {'name': 'shop.noop', 'arguments': {}, 'cost': 1}
++
++
++def two_cell_plan():
++    return [{
++        'task_id': 'fixture-0', 'pair_id': 'fixed-two-cell', 'split': 'train',
++        'source_split': 'train', 'prefix': [], 'conditions': {'c0': None},
++        'reference': noop(),
++        'action': {'name': 'shop.set_shipping', 'arguments': {'shipping': 'express'}, 'cost': 1},
++    }]
++
++
++def read_ledger(config):
++    return json.loads(Path(config['collection']['budget']['ledger_path']).read_text())
++
++
++class TrackedEnv(FixtureEnv):
++    def __init__(self, config, task_id, split, experiment, calls):
++        self.calls_seen = calls
++        super().__init__(config, task_id, split, experiment)
++
++    def execute(self, action):
++        self.calls_seen['execute'].append(self._budget_remaining)
++        return super().execute(action)
++
++    def branch(self, prefix, action, condition=None, max_cost=None):
++        self.calls_seen['branch'].append(max_cost)
++        return super().branch(prefix, action, condition, max_cost=max_cost)
++
++
++def track_environment(monkeypatch, env_class=TrackedEnv):
++    calls = {'created': [], 'execute': [], 'branch': []}
++
++    def factory(config, task_id, split, experiment):
++        calls['created'].append(task_id)
++        return env_class(config, task_id, split, experiment, calls)
++
++    monkeypatch.setattr(collection, 'create_environment', factory)
++    return calls
++
++
++def test_natural_and_cf_share_persistent_environment_ceiling(monkeypatch, tmp_path):
++    config = budget_config(tmp_path, environment_limit=3, natural_step_limit=9, cf_cell_limit=9)
++    calls = track_environment(monkeypatch)
++
++    natural = collection.collect(config, tmp_path / 'natural')
++    counterfactual = collection.collect_counterfactual(config, two_cell_plan(), tmp_path / 'cf')
++
++    assert natural['total_cost'] == 1
++    assert counterfactual['total_cost'] == 2
++    assert calls['execute'] == [3]
++    assert calls['branch'] == [2, 1]
++    assert counterfactual['budget']['spent']['environment'] == 3
++    assert read_ledger(config)['spent']['environment'] == 3
++
++    # A new output folder is not a new allowance and cannot execute a fourth unit.
++    with pytest.raises(AcquisitionBudgetExceeded):
++        collection.collect(config, tmp_path / 'not_a_new_budget')
++    assert calls['execute'] == [3]
++    assert calls['branch'] == [2, 1]
++    assert len(read_jsonl(tmp_path / 'natural' / 'transitions.jsonl')) == 1
++
++
++def test_natural_step_cap_is_passed_to_environment(monkeypatch, tmp_path):
++    config = budget_config(tmp_path, actions=[noop(), noop()], environment_limit=7, natural_step_limit=2)
++    calls = track_environment(monkeypatch)
++    summary = collection.collect(config, tmp_path / 'natural')
++    assert calls['execute'] == [2, 2]
++    assert summary['total_cost'] == 2
++    assert summary['budget']['spent']['environment'] == 2
++
++
++def test_cf_cell_cap_is_independent_of_plan_action_cost(monkeypatch, tmp_path):
++    config = budget_config(tmp_path, environment_limit=10, cf_cell_limit=2)
++    plans = two_cell_plan()
++    plans[0]['prefix'] = [{'action': noop(), 'output': 'ok'}]
++    plans[0]['conditions'] = {'c0': {'actions': [noop()]}}
++    calls = track_environment(monkeypatch)
++    with pytest.raises(ValueError, match='max_cost'):
++        collection.collect_counterfactual(config, plans, tmp_path / 'cf')
++    assert calls['branch'] == [2]
++    assert read_ledger(config)['spent']['environment'] == 0
++    assert not read_ledger(config)['cost_unresolved']
++
++
++def test_partial_cf_failure_preserves_known_execution_cost(monkeypatch, tmp_path):
++    class PartialFailure(TrackedEnv):
++        def branch(self, prefix, action, condition=None, max_cost=None):
++            self.calls_seen['branch'].append(max_cost)
++            raise EnvironmentExecutionError('condition failed after two executed blocks', charged_cost=2)
++
++    config = budget_config(tmp_path, environment_limit=7, cf_cell_limit=4)
++    calls = track_environment(monkeypatch, PartialFailure)
++    with pytest.raises(EnvironmentExecutionError, match='condition failed'):
++        collection.collect_counterfactual(config, two_cell_plan(), tmp_path / 'cf')
++
++    ledger = read_ledger(config)
++    failure = json.loads((tmp_path / 'cf' / 'collection_failure.json').read_text())
++    assert calls['branch'] == [4]
++    assert ledger['spent']['environment'] == 2
++    assert not ledger['cost_unresolved'] and not ledger['sealed']
++    assert failure['known_cost'] == 2
++    assert not failure['cost_unresolved']
++
++
++@pytest.mark.parametrize('counterfactual', [False, True])
++def test_record_conversion_failure_does_not_erase_executed_cost(monkeypatch, tmp_path, counterfactual):
++    config = budget_config(tmp_path)
++    calls = track_environment(monkeypatch)
++
++    def invalid_record(*args, **kwargs):
++        raise ValueError('deliberately malformed record after execution')
++
++    monkeypatch.setattr(collection, '_record', invalid_record)
++    output = tmp_path / ('cf' if counterfactual else 'natural')
++    with pytest.raises(ValueError, match='malformed record'):
++        if counterfactual:
++            collection.collect_counterfactual(config, two_cell_plan(), output)
++        else:
++            collection.collect(config, output)
++
++    ledger = read_ledger(config)
++    failure = json.loads((output / 'collection_failure.json').read_text())
++    assert len(calls['branch' if counterfactual else 'execute']) == 1
++    assert ledger['spent']['environment'] == 1
++    assert not ledger['cost_unresolved'] and not ledger['sealed']
++    assert failure['known_cost'] == 1
++    assert not failure['cost_unresolved']
++
++
++@pytest.mark.parametrize('counterfactual', [False, True])
++def test_real_collection_requires_explicit_budget_before_environment(monkeypatch, tmp_path, counterfactual):
++    config = budget_config(tmp_path)
++    config['environment']['backend'] = 'appworld'
++    del config['collection']['budget']
++    calls = track_environment(monkeypatch)
++    with pytest.raises((ValueError, CollectionBudgetError), match='budget'):
++        if counterfactual:
++            collection.collect_counterfactual(config, two_cell_plan(), tmp_path / 'cf')
++        else:
++            collection.collect(config, tmp_path / 'natural')
++    assert calls['created'] == []
++
++
++def test_fixture_collection_without_budget_keeps_legacy_behavior(tmp_path):
++    config = budget_config(tmp_path)
++    del config['collection']['budget']
++    summary = collection.collect(config, tmp_path / 'natural')
++    assert summary['records'] == 1 and summary['total_cost'] == 1
++    assert summary['scientific_evidence'] is False
++    assert not (tmp_path / 'acquisition_ledger.json').exists()
++
++
++def test_reset_and_observe_do_not_consume_execution_units(monkeypatch, tmp_path):
++    config = budget_config(tmp_path, actions=[])
++    config['collection']['max_steps'] = 0
++    calls = track_environment(monkeypatch)
++    summary = collection.collect(config, tmp_path / 'empty')
++    assert calls['created'] == ['fixture-0'] and calls['execute'] == []
++    assert summary['total_cost'] == 0
++    assert summary['budget']['spent']['environment'] == 0
++    assert summary['budget']['spent']['actor_generations'] == 0
++    assert summary['budget']['spent']['actor_http_attempts'] == 0
++
++
++def test_unknown_execution_cost_seals_ledger_across_restart(monkeypatch, tmp_path):
++    class LostReceipt(TrackedEnv):
++        def execute(self, action):
++            self.calls_seen['execute'].append(self._budget_remaining)
++            raise TimeoutError('worker receipt lost after dispatch')
++
++    config = budget_config(tmp_path)
++    calls = track_environment(monkeypatch, LostReceipt)
++    with pytest.raises(TimeoutError, match='receipt lost'):
++        collection.collect(config, tmp_path / 'first')
++    ledger = read_ledger(config)
++    assert ledger['sealed'] and ledger['cost_unresolved']
++    created_before_restart = list(calls['created'])
++
++    with pytest.raises(CollectionBudgetError):
++        collection.collect(config, tmp_path / 'restart')
++    assert len(calls['execute']) == 1
++    assert calls['created'] == created_before_restart
++
++
++def test_process_exit_pending_reservation_cannot_be_replayed(monkeypatch, tmp_path):
++    config = budget_config(tmp_path)
++    script = (
++        'import json, os, sys\n'
++        'from repairscope.acquisition_budget import CollectionBudget\n'
++        'with CollectionBudget(json.loads(sys.argv[1])) as budget:\n'
++        '    budget.environment_call("natural", lambda cap: os._exit(17))\n'
++    )
++    environment = dict(os.environ)
++    environment['PYTHONPATH'] = str(Path(collection.__file__).resolve().parents[1])
++    child = subprocess.run([sys.executable, '-c', script, json.dumps(config)],
++                           env=environment, capture_output=True, text=True, timeout=20)
++    assert child.returncode == 17, child.stderr
++    assert read_ledger(config)['pending']
++    calls = track_environment(monkeypatch)
++    with pytest.raises(CollectionBudgetError):
++        collection.collect(config, tmp_path / 'restart')
++    ledger = read_ledger(config)
++    assert ledger['sealed'] and ledger['cost_unresolved']
++    assert calls['created'] == []
++
++
++def test_actor_generation_and_http_are_separate_hard_limits(monkeypatch, tmp_path):
++    config = budget_config(tmp_path, actor_generation_limit=1, actor_http_limit=0)
++    config['collection'].pop('action_plans')
++    calls = track_environment(monkeypatch)
++    actor = FrozenActor({'backend': 'scripted', 'actions': [noop()]})
++    with pytest.raises(AcquisitionBudgetExceeded):
++        collection.collect(config, tmp_path / 'natural', actor=actor)
++    ledger = read_ledger(config)
++    assert actor.calls == 1 and actor.http_calls == 0
++    assert len(calls['execute']) == 1
++    assert ledger['spent']['actor_generations'] == 1
++    assert ledger['spent']['actor_http_attempts'] == 0
++    assert ledger['spent']['environment'] == 1
++
++
++def test_actor_parse_retry_is_blocked_before_second_http_attempt(monkeypatch, tmp_path):
++    config = budget_config(tmp_path, actor_generation_limit=1, actor_http_limit=1)
++    config['collection'].pop('action_plans')
++    config['collection']['max_steps'] = 1
++    calls = track_environment(monkeypatch)
++    actor = FrozenActor({'backend': 'openai', 'api_key_env': 'BUDGET_TEST_API_KEY',
++                         'base_url': 'https://invalid.test/v1', 'model': 'frozen-test-policy'})
++    monkeypatch.setenv('BUDGET_TEST_API_KEY', 'local-test-value')
++    http = []
++
++    def fake_urlopen(request, timeout):
++        http.append(request.full_url)
++        return BytesIO(json.dumps({'choices': [{'message': {'content': 'not JSON'}}]}).encode())
++
++    monkeypatch.setattr(actor_module.urllib.request, 'urlopen', fake_urlopen)
++    with pytest.raises(AcquisitionBudgetExceeded):
++        collection.collect(config, tmp_path / 'natural', actor=actor)
++    ledger = read_ledger(config)
++    assert http == ['https://invalid.test/v1/chat/completions']
++    assert calls['execute'] == []
++    assert ledger['spent']['actor_generations'] == 1
++    assert ledger['spent']['actor_http_attempts'] == 1
++    assert ledger['spent']['environment'] == 0
++    assert actor.set_http_budget_hook(None) is None
++
++
++def test_actor_http_hook_tracks_requests_but_not_cache_or_script(monkeypatch):
++    actor = FrozenActor({'backend': 'openai', 'api_key_env': 'BUDGET_TEST_API_KEY',
++                         'base_url': 'https://invalid.test/v1', 'model': 'frozen-test-policy'})
++    monkeypatch.setenv('BUDGET_TEST_API_KEY', 'local-test-value')
++    hooks, http = [], []
++    hook = lambda: hooks.append('http')
++    assert actor.set_http_budget_hook(hook) is None
++
++    def fake_urlopen(request, timeout):
++        http.append(request.full_url)
++        return BytesIO(json.dumps({'choices': [{'message': {'content': json.dumps({'actions': [noop()]})}}]}).encode())
++
++    monkeypatch.setattr(actor_module.urllib.request, 'urlopen', fake_urlopen)
++    state = {'fields': [], 'relations': []}
++    first = actor.generate(state, [], [], count=1)
++    second = actor.generate(deepcopy(state), [], [], count=1)
++    assert first == second
++    assert hooks == ['http'] and len(http) == 1
++    assert actor.calls == 2 and actor.http_calls == 1 and actor.cache_hits == 1
++    assert actor.set_http_budget_hook(None) is hook
++
++    scripted = FrozenActor({'backend': 'scripted', 'actions': [noop()]})
++    assert scripted.set_http_budget_hook(hook) is None
++    scripted.generate(state, [], [], count=1)
++    assert hooks == ['http'] and scripted.http_calls == 0

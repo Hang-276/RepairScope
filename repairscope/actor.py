@@ -196,6 +196,7 @@ class FrozenActor:
         self.http_calls = 0
         self.cache_hits = 0
         self.last_http_calls = 0
+        self._http_budget_hook = None
         self.cache: dict = {}
         self.cache_path = self.config.get("cache_path")
         if self.cache_path and Path(self.cache_path).exists():
@@ -214,6 +215,12 @@ class FrozenActor:
                  "history": public_history(history), "candidate_count": count, "mode": mode},
                  ensure_ascii=False, sort_keys=True)}]
 
+    def set_http_budget_hook(self, hook):
+        """Install a pre-request accounting hook without changing policy inputs."""
+        previous = self._http_budget_hook
+        self._http_budget_hook = hook
+        return previous
+
     def _request(self, messages: list[dict], count: int) -> list[dict]:
         key_name = self.config.get("api_key_env", "OPENAI_API_KEY")
         key = os.environ.get(key_name)
@@ -229,10 +236,12 @@ class FrozenActor:
         # once or twice with a larger output cap; both arms share this policy.
         last_error = None
         for attempt in range(3):
-            self.http_calls += 1
-            self.last_http_calls += 1
             request = urllib.request.Request(url, json.dumps(body).encode(),
                       {"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+            if self._http_budget_hook is not None:
+                self._http_budget_hook()
+            self.http_calls += 1
+            self.last_http_calls += 1
             with urllib.request.urlopen(request, timeout=float(self.config.get("timeout", 120))) as response:
                 payload = json.load(response)
             try:

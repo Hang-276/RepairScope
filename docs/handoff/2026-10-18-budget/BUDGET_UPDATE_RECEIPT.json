@@ -1,0 +1,55 @@
+{
+  "base_macbook_commit": "f8c8a90ac590633cea7620a73446eec316b641e7",
+  "patch": "server_budget.patch",
+  "patch_sha256": "102c79170ac7ec8af06a18b40de3e940891682ecc3d8933e12257a6e5babb3be",
+  "files": [
+    {
+      "path": "repairscope/actor.py",
+      "before_sha256": "79bbd031a8bc5e00b4dce0136146d949b65d67d7e66623ffe790da3ecc264c42",
+      "after_sha256": "dc149183105c2ecdd8fc564135f5b5dad9acc3a20bc42c4adcbb2b99ab830c94",
+      "accepted_variants": [
+        {
+          "name": "server_legacy_import_preserved",
+          "before_sha256": "e312d5d2b5840fb306cacdef89765e264f09159e286852e7ab891f6ba98b295b",
+          "after_sha256": "47af2bc3219afb13f181e07e1bbc7bef99ea2b972d3e4f86cec43a216e6997fd"
+        }
+      ]
+    },
+    {
+      "path": "repairscope/collection.py",
+      "before_sha256": "0d35fcc9d8b0967651c41e80f5b9b4f4193cf31eaa36a4ecf97925dd74cfe306",
+      "after_sha256": "55aa918a4081239ddb85a9fc9d2701918e2c81f07f121d86dd295b3455791acb",
+      "accepted_variants": []
+    },
+    {
+      "path": "repairscope/acquisition_budget.py",
+      "before_sha256": null,
+      "after_sha256": "ff66f78eb99c5201e9775660ea2259abf67e4d751bfc42c7c7275ae27bf4a1d9",
+      "accepted_variants": []
+    },
+    {
+      "path": "tests/repairscope/test_acquisition_ledger.py",
+      "before_sha256": null,
+      "after_sha256": "be077cd82b4d49192a1fb76cc60f0ecb1b81990fccb293c90ba1e871c4e353d0",
+      "accepted_variants": []
+    },
+    {
+      "path": "tests/repairscope/test_acquisition_budget.py",
+      "before_sha256": null,
+      "after_sha256": "9c982bd4f922e7120223360671a9d00920c877aa58aea978ee045754597a1c52",
+      "accepted_variants": []
+    }
+  ],
+  "compatibility": "Same patch dry-run/applied and after hashes verified for canonical and original server actor import. It deliberately does not change aggregate_candidates import or require a whole-tree replacement.",
+  "local_verification": {
+    "python": "3.12.14",
+    "torch": "2.10.0",
+    "device": "CPU",
+    "command": "PYTHONPATH=. ../WMA-Agents/.venv/bin/python -m pytest -q tests/repairscope",
+    "result": "313 passed in 5.86s",
+    "real_environment_calls": 0,
+    "real_actor_http_attempts": 0,
+    "formal_optimizer_steps": 0,
+    "note": "Full suite includes synthetic fixture execution and synthetic optimizer regression; these are not live AppWorld training."
+  }
+}
