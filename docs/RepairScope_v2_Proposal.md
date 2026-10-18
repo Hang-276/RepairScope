@@ -4,7 +4,7 @@
 
 版本：2.0 完整研究方案，2026-10-18。
 
-> 当前执行阶段仅Ours/A4，按 [自主续接说明](CLAUDE_OURS_ONLY_CONTINUATION.md) 推进。下文完整A/B/消融与跨环境计划保留为研究设计，不能据此自动启动。实际修改需记录到Markdown变更日志。
+> 当前Stage1已达到NO_IDENTIFIED_SCOPE_LEARNING_GAP停止条件，正式Ours未启动，见 [终局记录](STAGE1_RESULT.md) 和 [监督对象核对](GS_OBJECTIVE_REVIEW.md)。本文完整A/B/消融与跨环境计划保留为研究设计，不能据此继续采集或自动启动。实际修改需记录到Markdown变更日志。
 
 代码依据：默认分支 `main`（新版交付分支 `feat/goal-sufficient-scope` 同步），核心提交 `62fd96e54891b799cf0819ae5e0c74253363f040`。本文整合研究动机、相关工作、形式化定义、架构、训练与完整 Evaluation Plan。旧版独立流程已从当前树移除，[v1.1 Proposal](https://github.com/Hang-276/RepairScope/blob/30e17abc4f59f4b0b4f2e84ada5c8987112b833e/docs/REPAIRSCOPE_PROPOSAL.md) 仅在 Git 历史中追溯；服务器路径与启动操作见 [Claude 实验交接](CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md)。
 

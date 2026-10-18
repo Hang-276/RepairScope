@@ -1,0 +1,108 @@
+{
+  "format_version": 1,
+  "date": "2026-10-18",
+  "timezone": "Asia/Shanghai",
+  "provenance": "Structured transcription of the user-forwarded server terminal report, not a byte copy or live server verification. Raw data, ledger, manifests and original report were not retrieved.",
+  "conclusion": "NO_IDENTIFIED_SCOPE_LEARNING_GAP",
+  "phase_status": "CLOSED_AT_PRECOMMITTED_STOP",
+  "reported_data": {
+    "train_natural_tasks": 11,
+    "train_natural_records": 106,
+    "dev_natural_tasks": 3,
+    "dev_natural_records": 30,
+    "train_cf_tasks": [
+      "302c169_1",
+      "07b42fd_1",
+      "07b42fd_2",
+      "07b42fd_3"
+    ],
+    "train_cf_cells": 16,
+    "dev_cf_cells": 0,
+    "train_records_combined": 122,
+    "dev_records_combined": 30,
+    "h4_windows": 73,
+    "h4_split": "not explicitly labeled in the forwarded report",
+    "ambiguous_task_skipped": "302c169_2",
+    "failures": "Alarm natural attempts for 302c169_1/3 failed; 07b42fd_1/3 stopped after 8 records; unavailable CF targets retained as partial, without replacements."
+  },
+  "reported_audit": {
+    "eligible_informative_groups": 8,
+    "cf_source_tasks": 4,
+    "oracle_equal_full_groups": 8,
+    "phone_gs": 0.0,
+    "follow_gs_approx": 1.49e-08,
+    "independent_scope_gradient": 0.0,
+    "boundary_valid_labels": 112,
+    "boundary_nonzero_labels": 0,
+    "predictor_initialization": "fresh seed100, CPU, untrained",
+    "predictor_decision": "phone tie; follow reference",
+    "goal_fields": [
+      "phone.alarms[122].time",
+      "spotify.artists[14].follower_count",
+      "spotify.artists[3].follower_count",
+      "spotify.artists[13].follower_count"
+    ]
+  },
+  "reported_cost": {
+    "natural_environment": 402,
+    "cf_environment": 176,
+    "stage1_environment": 578,
+    "stage1_limit": 1440,
+    "unused_environment": 862,
+    "actor_generations": 138,
+    "actor_generation_limit": 150,
+    "actor_http_attempts": 133,
+    "actor_http_limit": 450,
+    "historical_environment": 340,
+    "cumulative_environment": 918,
+    "formal_optimizer_steps": 0,
+    "ours_gpu": 0,
+    "test_controller": 0
+  },
+  "reported_ledger_state": {
+    "sealed": false,
+    "pending": false,
+    "cost_unknown": false,
+    "continuation_authorized": false
+  },
+  "reported_source_tree": "98983a742b270029970176b989abe0dc4d9188b97f1b0eff5396800ccd415fbc",
+  "reported_source_files": {
+    "repairscope/model.py": "82368a34f1c691060c804ba8e6735a408796f3f84d12d1a828f2435f493b0eb5",
+    "repairscope/training.py": "2856fe3e14349fe0d8106eec92e5c4ec7312653423a762849087dbfb061804fb",
+    "repairscope/actor.py": "47af2bc3219afb13f181e07e1bbc7bef99ea2b972d3e4f86cec43a216e6997fd",
+    "repairscope/collection.py": "55aa918a4081239ddb85a9fc9d2701918e2c81f07f121d86dd295b3455791acb",
+    "repairscope/acquisition_budget.py": "ff66f78eb99c5201e9775660ea2259abf67e4d751bfc42c7c7275ae27bf4a1d9"
+  },
+  "source_hashes_match_local_or_documented_legacy_variant": {
+    "repairscope/model.py": true,
+    "repairscope/training.py": true,
+    "repairscope/actor.py": true,
+    "repairscope/collection.py": true,
+    "repairscope/acquisition_budget.py": true
+  },
+  "reported_external_hashes": {
+    "stage1/train.jsonl": "2c11ee1727e79b7ccb9bf3e4d36fe0e80465a31a95c8a35f213c0222f458af3b",
+    "stage1/dev.jsonl": "e46febd112f17e79d7de4eb191b5803681346c675f40398d0d12a84da25a7478",
+    "derived follow labels": "d23bd33fb1ee696376065dd170401e841a3b807feef0e4eb8c9bbcbafb5a258f",
+    "normalized manifest": "fdec7a38b6acbf5dac09cc22c8cbb8edbce0bfff7c471167dcd5967a5e968ea3",
+    "frozen manifest": "f77df5ad45ed847b2a5a767840e0750a3224fd02815c2e474e0708f80805a50e",
+    "stage1/OFFLINE_SUPERVISION_AUDIT.json": "6dd724615afbe20729c4556a29711f446b4652542ffe55cdc2e3b6178a8cb700",
+    "stage1/acquisition_ledger.json": "8539c814fdc25b185e22d4396d28b8fcdb43b98039d2a504892c26e1fde10132",
+    "server_v2_stage1.yaml": "51aa252b40bb8434ab58397d912eb4f814d1cdba5ae04c542ad7e669915dde60",
+    "STAGE1_FINAL_REPORT.md": "9cc7b46923c0691916b3c13e2f5509282ba8712cdeb4962e1c4333edd3ffa555",
+    "CHANGELOG_V2.md": "9c6b9b7616de51c79abb976a2816e1104cb4ab94b149a52810109e34ff18d649"
+  },
+  "reported_services": {
+    "actor_model": "Qwen3-8B-AWQ",
+    "actor_model_revision": "4da05a8edb55c6046cce958586c33b61da07bb79",
+    "vllm": "0.11.0",
+    "tmux_stopped": true,
+    "gpu_memory_mib_at_report": 0
+  },
+  "formal_ours_started": false,
+  "formal_checkpoint_exists": false,
+  "dev_calibration_done": false,
+  "test_normal_done": false,
+  "next_action": "Method-objective review only; no new collection, training or same-data diagnostics.",
+  "base_macbook_commit": "3b3ece6dd0c611c8168991f881710368af24af05"
+}

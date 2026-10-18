@@ -4,6 +4,15 @@
 
 服务器逐项操作另记 `/root/autodl-tmp/RepairScope-server-notes/CHANGELOG_V2.md`，字段模板见 [自主续接说明第7节](CLAUDE_OURS_ONLY_CONTINUATION.md#7-每项修改必须即时写入markdown变更日志)。服务器日志、原始数据和权重不因这一要求自动加入Git。
 
+## 2026-10-18：Stage1终局与GS监督对象核对
+
+- 起点：`3b3ece6`。用户转交自主授权执行后的终局报告：4个CF任务/8可靠组oracle效用全覆盖，GS为0或残差、Scope独立梯度0；按预先条件结束，正式Ours/dev校准/test均未启动。
+- 实际费用：natural402+CF176=578新增环境，历史340合计918；generate138、HTTP133，正式优化0。剩余862不是续采或新方法授权。账本未封存/无pending是费用状态，不覆盖科学停止条件。
+- 修改：新增`STAGE1_RESULT.md`及结构化报告字段，保存用户提供的hash、覆盖/失败和版本边界；新增`GS_OBJECTIVE_REVIEW.md`，分别给出oracle饱和命题与条件反例，区分输出覆盖、预测条件与未训练动力学误差；更新README、CLAUDE、Stage1和Proposal当前入口。
+- 定义边界：8组不外推所有任务/所有参数，且组间独立性未建立；任务/scenario聚类不能用记录或窗口数膨胀。其他损失后续改变Scope可能使GS重新出现，但本轮没有测试；112个有效零Boundary标签不证明能识别正边界。fresh Predictor错误不作方法失败或输入不足结论。
+- 本次不改算法/配置/数据，不进行新采集、训练、Smoke或重复工程回归；只做源码hash对应、报告算术/JSON/Markdown核对及独立只读评审。原始服务器文件未取回，不把转录当原件复验。
+- 回退：文档可从起点恢复，实际费用与Stage1已结束状态不可回退；原数据/ledger/日志继续保留。任何后续预测充分性目标均另记方法修订，不直接合入loss或借用未花预算。
+
 ## 2026-10-18：关闭F5工程阶段，准备单次Stage1采集审批
 
 - 起点：`824bd46`。用户转交F5收据，patch/receipt SHA及五文件after hash匹配预先验证的legacy变体；服务器报告60项模拟回归通过，15任务为4精确/10规则待公开实例化/1多义。收据原文与核对项存`docs/handoff/2026-10-18-stage1/`；仅核对报告，不声称实时访问服务器或收到所有原文件。

@@ -2,7 +2,7 @@
 
 **Goal-Sufficient Dynamic Scope Learning for Reliable Long-Horizon Agents**
 
-当前执行阶段：**只推进Ours/A4，正式实验尚未启动**。F1–F5工程更新已报告完成，当前为 [一次固定预算Stage1采集申请](docs/V2_STAGE1_ACQUISITION.md)，尚待用户批准新增真实调用；[自主续接说明](docs/CLAUDE_OURS_ONLY_CONTINUATION.md)中的预算与执行约束继续有效。其他对照、消融和B暂不运行。修改需及时记入 [变更记录](docs/CHANGELOG.md) 和服务器Markdown日志。
+当前状态：**Stage1以NO_IDENTIFIED_SCOPE_LEARNING_GAP结束，正式Ours未启动**。见 [终局记录](docs/STAGE1_RESULT.md) 与 [监督对象核对](docs/GS_OBJECTIVE_REVIEW.md)。本轮新增环境578、累计918；不再扩采同类任务、重复Smoke或消耗剩余额度。其他对照、消融和B不运行。修改需及时记入 [变更记录](docs/CHANGELOG.md) 和服务器Markdown日志。
 
 在固定字段预算下，学习足以支持目标保护决策的动作作用范围。
 
@@ -12,7 +12,9 @@ RepairScope v2 面向长程工具 Agent：一次动作既可能推进当前任�
 
 | 文档 | 用途 |
 | --- | --- |
-| [一次Stage1采集决策](docs/V2_STAGE1_ACQUISITION.md) | 当前申请；固定任务/额度/停止条件，获批准后一次执行 |
+| [Stage1终局记录](docs/STAGE1_RESULT.md) | 当前状态；真实采集的报告结果、覆盖边界、费用与停止决定 |
+| [GS监督对象核对](docs/GS_OBJECTIVE_REVIEW.md) | 饱和命题、条件反例及下一步方法设计要求，不授权新实验 |
+| [一次Stage1采集决策](docs/V2_STAGE1_ACQUISITION.md) | 已执行的原申请与停止条件，仅供追溯 |
 | [采集硬额度与当前任务](docs/V2_ACQUISITION_BUDGET.md) | 已完成的持久累计额度、失败计费、F5增量patch与候选计划 |
 | [工程合入与服务器更新](docs/V2_HANDOFF_INTEGRATION.md) | 已完成的交付核验、F3/F4修复、费用计划审查及历史增量patch |
 | [当前结论与交付任务](docs/V2_POST_CONTINUATION_DECISION.md) | 已完成离线续接的证据边界、实际补丁和正式计划移交 |
@@ -48,6 +50,8 @@ flowchart TD
 ## 证据状态
 
 本仓库提供方法实现、单元测试、合成工程 fixture 和实验协议。**这些不构成真实 AppWorld 方法效果、RTX 4090 性能或跨环境泛化证据。** 当前没有可据此宣称的任务提点结果。
+
+用户转交的真实Stage1采集报告中，4个任务的8个可靠CF决策组均已由当前oracle Scope覆盖，独立GS梯度为0，正式训练未启动。该结果限定于本轮组与当前参数；不证明全部任务或训练后所有状态都无信号，也不证明fresh Predictor的错误由Scope遗漏造成。
 
 真实训练首先需要正确绑定的公开业务目标、合法可比较反事实分支，以及固定预算下可学习的范围竞争。训练入口会拒绝没有可训练目标决策组的 Goal-Sufficiency 训练；完整数据预审计也不能替代实际 batch 中新增损失、Scope 梯度和参数更新的验收。
 

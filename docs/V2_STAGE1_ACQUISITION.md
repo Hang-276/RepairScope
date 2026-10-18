@@ -1,5 +1,7 @@
 # RepairScope v2：一次固定预算的Stage1采集决策
 
+**终局更新：用户转交的自主授权已执行，Stage1以NO_IDENTIFIED_SCOPE_LEARNING_GAP结束，新增环境578、累计918。正式Ours未启动；剩余862不继续使用。本文下方保留原申请，当前以[终局记录](STAGE1_RESULT.md)为准，不再执行采集步骤。**
+
 日期：2026-10-18，Asia/Shanghai。**状态：待用户批准本次新增采集预算，尚未启动。** 本文件是完整可审阅的单次执行范围；[机器清单](STAGE1_ACQUISITION.proposed.json)中的数值不等于预算已经获批。
 
 ## 1. 已完成，停止重复检查
