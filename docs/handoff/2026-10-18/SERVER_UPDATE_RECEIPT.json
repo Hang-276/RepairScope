@@ -1,0 +1,28 @@
+{
+  "base_server_model_sha256": "42705db9c7147bbe849bc46647727b63296bd97f2a8e59d2754ac1b01a5a73a5",
+  "patch": "server_followup.patch",
+  "patch_sha256": "e619c7cf9ed53abfc2bc9bbc16d1ed37831a682df4b97190e5d2581eab7d4632",
+  "files": [
+    {
+      "path": "repairscope/model.py",
+      "before_sha256": "42705db9c7147bbe849bc46647727b63296bd97f2a8e59d2754ac1b01a5a73a5",
+      "after_sha256": "82368a34f1c691060c804ba8e6735a408796f3f84d12d1a828f2435f493b0eb5"
+    },
+    {
+      "path": "repairscope/training.py",
+      "before_sha256": "ff4e9adc08610c4dabab1a52af34a1c374b6d2941ba8c50234200027b13eb326",
+      "after_sha256": "2856fe3e14349fe0d8106eec92e5c4ec7312653423a762849087dbfb061804fb"
+    },
+    {
+      "path": "tests/repairscope/test_server_fixes.py",
+      "before_sha256": null,
+      "after_sha256": "9b71566a053aa333c3b42b2c84779c5997e8817a36f175a70d22ae4c9cee86f7"
+    },
+    {
+      "path": "tests/repairscope/test_training_schedule.py",
+      "before_sha256": null,
+      "after_sha256": "26178da472bff69bb1742ae03f930e1cc1513309c47bf7d92458e9a788281213"
+    }
+  ],
+  "checkpoint_note": "Existing legacy checkpoints remain inference-loadable but cannot exact-resume the new frozen training schedule; old H4/GS receipts retain their old code hash."
+}

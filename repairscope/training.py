@@ -137,6 +137,27 @@ def _minibatches(order, bundles, micro_batch):
     return batches
 
 
+def _training_schedule(bundles, train):
+    """Freeze every epoch's packing before sizing the optimizer/LR schedule.
+
+    Atomic CF bundles can leave a partially filled microbatch when shuffled.
+    Counting only an unshuffled epoch therefore underestimates some epochs.
+    A private sampler RNG keeps planning independent of model/dropout RNG use.
+    """
+    rng = random.Random(int(train.get("seed", 100)))
+    orders, batch_counts, update_counts = [], [], []
+    for _ in range(int(train["epochs"])):
+        order = list(range(len(bundles)))
+        rng.shuffle(order)
+        batches = _minibatches(order, bundles, int(train["micro_batch"]))
+        orders.append(order)
+        batch_counts.append(len(batches))
+        update_counts.append(math.ceil(len(batches) / int(train["grad_accum"])))
+    return {"format_version": 1, "orders": orders,
+            "minibatches_per_epoch": batch_counts,
+            "updates_per_epoch": update_counts, "total_updates": sum(update_counts)}
+
+
 def _loss_for_windows(model, tensorizer, windows, config, device, auxiliary):
     records = [window[0] for window in windows]
     initial = to_device(tensorizer.batch(records), device)
@@ -314,14 +335,16 @@ def train_model(records: list[dict], config: dict, output_dir: str | Path, resum
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(train["learning_rate"]), weight_decay=float(train["weight_decay"]))
     windows = _windows(records, max(1, int(train.get("horizon", 4))))
     bundles = _bundles(records, windows)
-    base_batches = _minibatches(list(range(len(bundles))), bundles, int(train["micro_batch"]))
-    estimated_steps = math.ceil(len(base_batches) / int(train["grad_accum"])) * int(train["epochs"])
-    max_steps = int(train.get("max_steps") or estimated_steps)
-    warmup = max(0, math.ceil(estimated_steps * float(train.get("warmup_fraction", .1))))
+    schedule = _training_schedule(bundles, train)
+    scheduled_steps = schedule["total_updates"]
+    max_steps = scheduled_steps if train.get("max_steps") is None else int(train["max_steps"])
+    if max_steps < 1:
+        raise ValueError("train.max_steps must be positive or null")
+    warmup = max(0, math.ceil(scheduled_steps * float(train.get("warmup_fraction", .1))))
     def rate(step):
         if warmup and step < warmup:
             return (step + 1) / warmup
-        progress = min(1., max(0., (step - warmup) / max(1, estimated_steps-warmup)))
+        progress = min(1., max(0., (step - warmup) / max(1, scheduled_steps-warmup)))
         return 0.5 * (1 + math.cos(math.pi * progress))
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, rate)
     effective_precision = _effective_precision(config, device)
@@ -334,6 +357,7 @@ def train_model(records: list[dict], config: dict, output_dir: str | Path, resum
     (outdir / "supervision_audit.json").write_text(json.dumps(supervision, ensure_ascii=False, indent=2) + "\n")
     (outdir / "manifest.json").write_text(json.dumps({**manifest, "effective_precision": effective_precision, "device": str(device)}, ensure_ascii=False, indent=2) + "\n")
     (outdir / "schema.json").write_text(json.dumps(manifest["schema"], ensure_ascii=False, indent=2) + "\n")
+    (outdir / "training_schedule.json").write_text(json.dumps(schedule, indent=2) + "\n")
     (outdir / "goal_supervision_audit.json").write_text(json.dumps({key: value for key, value in decision_audit.items() if key != "groups"}, indent=2) + "\n")
     global_step, epoch, batch_cursor, order = 0, 0, 0, None
     history, latest = [], {}
@@ -348,6 +372,10 @@ def train_model(records: list[dict], config: dict, output_dir: str | Path, resum
         for key in ("micro_batch", "grad_accum", "learning_rate", "weight_decay", "seed", "warmup_fraction", "epochs", "horizon"):
             if checkpoint["config"]["train"].get(key) != train.get(key):
                 raise ValueError(f"Resume train.{key} differs; exact resume requires the same schedule")
+        if "training_schedule" not in checkpoint:
+            raise ValueError("Legacy checkpoint has no frozen training schedule; exact resume cannot preserve its old sampler/LR schedule. Inference loading remains supported.")
+        if checkpoint["training_schedule"] != schedule:
+            raise ValueError("Resume frozen training schedule differs; exact resume requires the same schedule")
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         scheduler.load_state_dict(checkpoint["scheduler"])
@@ -356,16 +384,15 @@ def train_model(records: list[dict], config: dict, output_dir: str | Path, resum
         _restore_rng(checkpoint["rng"])
     checkpoint_path = outdir / "checkpoint.pt"
     def save():
-        payload = {"format_version": 1, "config": config, "model": model.state_dict(), "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(), "rng": _rng_state(), "global_step": global_step, "epoch": epoch, "batch_cursor": batch_cursor, "order": order, "history": history, "schema": manifest["schema"], "manifest": manifest}
+        payload = {"format_version": 1, "config": config, "model": model.state_dict(), "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(), "rng": _rng_state(), "global_step": global_step, "epoch": epoch, "batch_cursor": batch_cursor, "order": order, "history": history, "schema": manifest["schema"], "manifest": manifest, "training_schedule": schedule}
         temporary = checkpoint_path.with_suffix(".tmp")
         torch.save(payload, temporary)
         os.replace(temporary, checkpoint_path)
     model.train()
     optimizer.zero_grad(set_to_none=True)
-    while epoch < int(train["epochs"]) and global_step < max_steps:
+    while epoch < int(train["epochs"]):
         if order is None:
-            order = list(range(len(bundles)))
-            random.shuffle(order)
+            order = schedule["orders"][epoch]
         minibatches = _minibatches(order, bundles, int(train["micro_batch"]))
         cursor = batch_cursor
         while cursor < len(minibatches) and global_step < max_steps:
@@ -397,9 +424,13 @@ def train_model(records: list[dict], config: dict, output_dir: str | Path, resum
         if cursor >= len(minibatches):
             epoch += 1
             batch_cursor, order = 0, None
+        else:
+            break
     save()
     result = {"checkpoint": str(checkpoint_path.resolve()), "config": str((outdir / "config.json").resolve()),
               "manifest": str((outdir / "manifest.json").resolve()), "updates": global_step,
+              "training_schedule": str((outdir / "training_schedule.json").resolve()),
+              "scheduled_updates": scheduled_steps,
               "epochs_completed": epoch, "metrics": latest or (history[-1] if history else {}),
               "device": str(device), "effective_precision": effective_precision,
               "evidence_origin": manifest["evidence_origin"], "supervision_audit": supervision}

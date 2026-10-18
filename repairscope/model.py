@@ -12,6 +12,18 @@ from torch.nn import functional as F
 from .tensorizer import KINDS, Tensorizer, canonical, to_device
 
 
+def causal_padding_mask(causal, padding, heads):
+    """Keep invalid keys hidden while making fully masked queries finite.
+
+    A padded query with no visible causal key may read itself. Other queries
+    still cannot read that padded key, so absent history never becomes context.
+    """
+    blocked = causal.unsqueeze(0) | padding.unsqueeze(1)
+    empty = blocked.all(dim=-1, keepdim=True)
+    diagonal = torch.eye(causal.shape[-1], dtype=torch.bool, device=causal.device)
+    return (blocked & ~(empty & diagonal)).repeat_interleave(heads, dim=0)
+
+
 def budget_gate(scores, mask, hard_scope, temperature=1.0):
     """Exact hard forward; implicit fixed-mass sigmoid relaxation backward.
 
@@ -153,7 +165,9 @@ class Predictor(nn.Module):
 
     def _goal_context(self, batch, x):
         context = torch.zeros_like(x)
-        embeddings = self.goal_encoder(batch["goal_features"])
+        # Scatter requires the projected goals to match the state dtype under
+        # autocast; the conversion preserves the gradient to the goal encoder.
+        embeddings = self.goal_encoder(batch["goal_features"]).to(dtype=x.dtype)
         bound = embeddings * batch["goal_mask"].unsqueeze(-1)
         context.scatter_add_(1, batch["goal_field"].unsqueeze(-1).expand_as(bound), bound)
         # Goals outside retrieved fields still condition the risk estimate.
@@ -241,12 +255,12 @@ class Predictor(nn.Module):
             length = tokens.shape[2]
             pos = self.time_embedding(torch.arange(length, device=x.device)).view(1, 1, length, d)
             tokens = (tokens + pos).reshape(b, n * length, d)
-            valid_flat = (valid & scope.unsqueeze(-1)).reshape(b, n * length).clone()
-            valid_flat[:, -1] |= ~valid_flat.any(-1)
+            valid_flat = (valid & scope.unsqueeze(-1)).reshape(b, n * length)
             time = torch.arange(length, device=x.device).repeat(n)
             causal = time.unsqueeze(0) > time.unsqueeze(1)
+            attention_mask = causal_padding_mask(causal, ~valid_flat, self.heads)
             for layer in self.unified:
-                tokens = layer(tokens, src_mask=causal, src_key_padding_mask=~valid_flat)
+                tokens = layer(tokens, src_mask=attention_mask)
             x = tokens.reshape(b, n, length, d)[:, :, -1]
         else:
             for layer in self.relations:
@@ -259,8 +273,9 @@ class Predictor(nn.Module):
                 sequence = (sequence + position).reshape(b * n, length, d)
                 padding = ~torch.cat((old_mask, torch.ones(b, n, 1, dtype=torch.bool, device=x.device)), dim=-1).reshape(b * n, length)
                 causal = torch.triu(torch.ones(length, length, dtype=torch.bool, device=x.device), diagonal=1)
+                attention_mask = causal_padding_mask(causal, padding, self.heads)
                 for layer in self.temporal:
-                    sequence = layer(sequence, src_mask=causal, src_key_padding_mask=padding)
+                    sequence = layer(sequence, src_mask=attention_mask)
                 x = sequence[:, -1].reshape(b, n, d)
         x = self.output_norm(x) * batch["mask"].unsqueeze(-1)
         op_logits = self.op_head(x)

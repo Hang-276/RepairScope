@@ -1,0 +1,159 @@
+{
+  "python": "/Users/yuzihang/Documents/ChatGPT/RSI-Repair/RepairScope-v2/../WMA-Agents/.venv/bin/python",
+  "torch": "2.10.0",
+  "device": "cpu",
+  "base_commit": "7517df3bc5d40cbcf4a6be4b7b0d1cf2d69df0b5",
+  "server_model_source_path": "/private/tmp/repairscope-v2-handoff-20261018/model.py.server",
+  "server_model_source_sha256": "42705db9c7147bbe849bc46647727b63296bd97f2a8e59d2754ac1b01a5a73a5",
+  "repaired_model_sha256": "82368a34f1c691060c804ba8e6735a408796f3f84d12d1a828f2435f493b0eb5",
+  "seed": 123,
+  "environment_calls": 0,
+  "actor_calls": 0,
+  "optimizer_steps": 0,
+  "rows": [
+    {
+      "version": "server_F3",
+      "backbone": "blite",
+      "history": "empty",
+      "mode": "train_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.25496044754981995,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "server_F3",
+      "backbone": "blite",
+      "history": "empty",
+      "mode": "eval_no_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.25496041774749756,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "server_F3",
+      "backbone": "blite",
+      "history": "partial",
+      "mode": "train_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.1603178083896637,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "server_F3",
+      "backbone": "blite",
+      "history": "partial",
+      "mode": "eval_no_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.16031786799430847,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "server_F3",
+      "backbone": "unified",
+      "history": "empty",
+      "mode": "train_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.0,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "server_F3",
+      "backbone": "unified",
+      "history": "empty",
+      "mode": "eval_no_grad",
+      "finite": false,
+      "masked_payload_prediction_delta": null,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "server_F3",
+      "backbone": "unified",
+      "history": "partial",
+      "mode": "train_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.0,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "server_F3",
+      "backbone": "unified",
+      "history": "partial",
+      "mode": "eval_no_grad",
+      "finite": false,
+      "masked_payload_prediction_delta": null,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "query_mask_repair",
+      "backbone": "blite",
+      "history": "empty",
+      "mode": "train_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.0,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "query_mask_repair",
+      "backbone": "blite",
+      "history": "empty",
+      "mode": "eval_no_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.0,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "query_mask_repair",
+      "backbone": "blite",
+      "history": "partial",
+      "mode": "train_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.0,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "query_mask_repair",
+      "backbone": "blite",
+      "history": "partial",
+      "mode": "eval_no_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.0,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "query_mask_repair",
+      "backbone": "unified",
+      "history": "empty",
+      "mode": "train_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.0,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "query_mask_repair",
+      "backbone": "unified",
+      "history": "empty",
+      "mode": "eval_no_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.0,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "query_mask_repair",
+      "backbone": "unified",
+      "history": "partial",
+      "mode": "train_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.0,
+      "absent_history_embedding_max": 3.1532375812530518
+    },
+    {
+      "version": "query_mask_repair",
+      "backbone": "unified",
+      "history": "partial",
+      "mode": "eval_no_grad",
+      "finite": true,
+      "masked_payload_prediction_delta": 0.0,
+      "absent_history_embedding_max": 3.1532375812530518
+    }
+  ]
+}

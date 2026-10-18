@@ -4,6 +4,35 @@
 
 服务器逐项操作另记 `/root/autodl-tmp/RepairScope-server-notes/CHANGELOG_V2.md`，字段模板见 [自主续接说明第7节](CLAUDE_OURS_ONLY_CONTINUATION.md#7-每项修改必须即时写入markdown变更日志)。服务器日志、原始数据和权重不因这一要求自动加入Git。
 
+## 2026-10-18：实际交付核验、工程修复与计划审查
+
+- 起点：`7517df3`。收到用户粘贴的实际补丁、Manifest、完整计划与账本；从文本重建的六个文件逐字节SHA256均与报告一致，三份源码的修改前/后hash也可复现。完整tar和其余payload尚未取得，不能宣称22项在MacBook复核通过。
+- 来源：`docs/handoff/2026-10-18/`保存原样文本、历史补丁及PROVENANCE；原文件不随审查意见修改。
+- F1：`Predictor._goal_context`在scatter前匹配dtype，保持原公开输入与可微投影；F2：五处概率BCE移到autocast外fp32计算。A4入口使用既有协议包装且只运行Ours四阶段。
+- F3复核：服务器的`padding[:,0]=False`把缺失history开放成有效上下文；缺失embedding并非零值，且unified分支仍有全mask NaN。拒绝原样应用历史model.patch中的F3。
+- F3替代：`causal_padding_mask`只为全遮挡query开放自身；其他有效query仍屏蔽缺失key。应用BLite与unified，不改变真实时间顺序或公开输入。新增局部测试覆盖有限前向/反向与无效history payload不变性。
+- 计划审查：采集平均成本不能标硬上限；CF bundle与尾窗改变实际训练调度；test共享ledger不等于环境API数，候选数不等于Actor HTTP数。正式计划待按实际代码修订，未批准新增采集或正式训练。
+- 当前验证：正在进行局部CPU工程回归；最终结果、完整文件hash和调度修复单列补充条目。无服务器/真实环境/Actor调用或正式GPU实验。
+- 回退：用起点提交恢复相关源码、入口及配置；不覆盖服务器既有数据/checkpoint。若回退F3，原全mask NaN风险恢复。F3修改后的预测须使用新源码hash，不能把既有H4收据重新标成新版复验。
+
+### 同轮补充：完整epoch调度与协议测试
+
+- F4：`training._training_schedule`以独立seed RNG预生成每个epoch的CF bundle顺序与实际装箱，精确计算warmup/cosine总步数。旧未打散估计曾将`max_steps=null`变成过小硬上限，可能在30epochs前停止；现在null完成全部epoch，显式max_steps只截断该完整日程。
+- 恢复边界：新checkpoint保存冻结training_schedule；同数据/日程可exact resume，无日程的旧checkpoint仍可推理但不冒充新版exact resume。不会继续既有Smoke checkpoint为正式训练。
+- 相关文件：`repairscope/training.py`、`test_training_schedule.py`。局部31项测试通过，含30epochs完成与dropout下逐位一致恢复。源码before=`ff4e9adc08610c4dabab1a52af34a1c374b6d2941ba8c50234200027b13eb326`，after=`2856fe3e14349fe0d8106eec92e5c4ec7312653423a762849087dbfb061804fb`。
+- 首次整体工程回归246通过、1失败：旧CLI测试仍允许A4使用两个seed和旧两阶段，已与新的协议入口冲突。将A4移到专用四阶段/seed100/固定参数及覆盖拒绝测试，保留原A1–A3测试；未放宽入口。
+- 本地合成优化仅用于上述回归；真实环境、Actor、正式训练和服务器新增成本均为0。最终整体结果在验证收据中记录。
+
+### 同轮最终验证与交付
+
+- 最终整体回归：`PYTHONPATH=. ../WMA-Agents/.venv/bin/python -m pytest -q tests/repairscope`，**253 passed in 5.38s**；Python3.12.14/PyTorch2.10.0/CPU，不安装依赖。
+- 源码与文档的Git补丁空白检查通过（原样保存的`.patch`排除格式所需的空白上下文行）；Markdown本地链接与围栏、六份交付文本hash及当前源码hash复核通过。
+- 为服务器现有model=42705db9…a73a5、training=ff4e9adc…326生成`server_followup.patch`；在本地重建该起点，dry-run与实际应用均通过，两个源码和两个新增回归文件的after hash全部一致。patch完整SHA256=`e619c7cf9ed53abfc2bc9bbc16d1ed37831a682df4b97190e5d2581eab7d4632`。
+- 精确源码hash见`docs/handoff/2026-10-18/LOCAL_INTEGRATION_RECEIPT.json`；服务器应用前后hash见同目录`SERVER_UPDATE_RECEIPT.json`。两份收据没有把服务器CUDA验证、旧H4重验或正式Ours记成完成。
+- `F3_MASK_AUDIT.json`保存精确服务器model hash42705db9…a73a5与当前源码的静态CPU对照：服务器unified no_grad两项非有限，缺失history扰动最大约0.254960；修复后均有限且扰动0。收据SHA256=`34c93fcbdf0bdbf865015e1a5ff71d713563e4f4a3df01b18aef3a9dc38a194f`，无环境/Actor/优化步。
+- 当前说明为`docs/V2_HANDOFF_INTEGRATION.md`；入口不再要求重复导出。原计划、Manifest和账本原样保留，费用/步数修订意见单独记录，没有擅增预算或更改GS/prior/Scope。
+- 恢复方式：可由本条起点commit恢复原MacBook源码；服务器须按新说明备份其不同起点再应用增量patch。旧checkpoint仍可推理，但新日程exact resume要求对应schedule，旧收据保留原hash。
+
 ## 2026-10-18：归档离线续接结论与补丁移交
 
 - 起点：`dac39cbcbf1ab5976218255267f4d9b2b27474f0`。
@@ -49,6 +78,8 @@
 - 边界：预审计可训练不保证当前参数梯度非零；合成Smoke不代表真实目标学习；数据和方法效果需服务器独立收据。
 
 ## 服务器已报告、尚未据补丁合入本地的修改
+
+后续状态说明：本节保留最初未取得补丁时的历史边界。现已核验并合入F1/F2/A4，F3由本地安全mask替代，另修复F4调度；精确状态以上方“实际交付核验”条目及验证收据为准。服务器尚需应用增量patch，不意味着本地仍缺F1/F2。
 
 以下仅转述用户提供的运行报告，不表示本仓库已经包含对应修复：
 

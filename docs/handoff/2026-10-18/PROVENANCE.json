@@ -1,0 +1,65 @@
+{
+  "transport": "user pasted text; reconstructed deterministic text files",
+  "input_bytes": 28458,
+  "input_sha256": "03067c97303f303518bf7bf61a05fa3a9db76594053bae3bdaccb88d7bcdca83",
+  "base_commit": "0ce975d933ab6a4650346609d1558e5e13e3da4c",
+  "archive_received": false,
+  "archive_sha256_reported_only": "57f92f6ad28028225ad6426073ac73594d700dc55adafadf11fc7578bd9e62ff",
+  "original_payload_file_count_reported": 22,
+  "received_text_files": [
+    {
+      "file": "model.patch",
+      "bytes": 1755,
+      "sha256": "257eec3562d7f5dd3ec33307c196a058e4d9cc9a4d0e1b6cac686c174a0bc794",
+      "matches_reported_sha256": true
+    },
+    {
+      "file": "losses.patch",
+      "bytes": 3920,
+      "sha256": "8b02ba8b74334406a890e898212e6d24b11b8b30573ef8b78101a3b6cf73b0a9",
+      "matches_reported_sha256": true
+    },
+    {
+      "file": "a4_entry.patch",
+      "bytes": 590,
+      "sha256": "42c95f70a209b45f58cb260573c819e9dd2ef1a5a86b57007ccfe245baf96587",
+      "matches_reported_sha256": true
+    },
+    {
+      "file": "HANDOFF_MANIFEST.server.json",
+      "bytes": 7929,
+      "sha256": "b4b63909026f32d13d4f82b89986ded9612b744759f7f718bb9d33f0247f3167",
+      "matches_reported_sha256": true
+    },
+    {
+      "file": "FORMAL_DATA_PLAN.server.md",
+      "bytes": 7909,
+      "sha256": "fc68201e9ccff3f0b7dde88e8faf528bf3f7e2bae277b91db67691a005d26e5f",
+      "matches_reported_sha256": true
+    },
+    {
+      "file": "COST_LEDGER.server.md",
+      "bytes": 3169,
+      "sha256": "3e2b5d172f2ef345e4e2496bef998a4ba58f817ec101b3045fd4ace1a636377c",
+      "matches_reported_sha256": true
+    }
+  ],
+  "source_files_reconstructed_and_verified": {
+    "repairscope/model.py": {
+      "before_sha256": "1fa01224ca16bb33511115120da1c35cec8742fe2c8b2b999e3c56b914d6087e",
+      "after_sha256": "42705db9c7147bbe849bc46647727b63296bd97f2a8e59d2754ac1b01a5a73a5",
+      "patch": "model.patch"
+    },
+    "repairscope/losses.py": {
+      "before_sha256": "f5c970ef84f7f6de60739737beb98d1bef9166b48429aded403b3150d5d43072",
+      "after_sha256": "633227eb33b3c37e396de9cb8d847b01719f7866129f766840d8203a8bd4699e",
+      "patch": "losses.patch"
+    },
+    "scripts/repairscope/a4_goal_sufficient.sh": {
+      "before_sha256": "b811d4b72c8a013f63b165b7a9573183033049c36f29134ebcdea354340cf353",
+      "after_sha256": "96931720f21ca6946e72374f63a962f356aa9f307f5cceeb2058ef519929628e",
+      "patch": "a4_entry.patch"
+    }
+  },
+  "note": "All three source before/after hashes match the server report; original full archive and other payloads were not obtained. Historical model.patch includes unsafe server F3; current source will replace F3."
+}

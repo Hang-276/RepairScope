@@ -1,0 +1,206 @@
+{
+  "format_version": 1,
+  "created": "2026-10-18T19:25:00+08:00",
+  "base_commit": "0ce975d933ab6a4650346609d1558e5e13e3da4c",
+  "server_git": false,
+  "source_tree_sha256": "10ee6e5cd1e0ac9cdb59923c3698a85e9a04d3491b41fc7165ba9589d8880390",
+  "source_modified_files": {
+    "repairscope/model.py": {
+      "before_sha256": "1fa01224ca16bb33511115120da1c35cec8742fe2c8b2b999e3c56b914d6087e",
+      "after_sha256": "42705db9c7147bbe849bc46647727b63296bd97f2a8e59d2754ac1b01a5a73a5",
+      "patch": "model.patch"
+    },
+    "repairscope/losses.py": {
+      "before_sha256": "f5c970ef84f7f6de60739737beb98d1bef9166b48429aded403b3150d5d43072",
+      "after_sha256": "633227eb33b3c37e396de9cb8d847b01719f7866129f766840d8203a8bd4699e",
+      "patch": "losses.patch"
+    },
+    "scripts/repairscope/a4_goal_sufficient.sh": {
+      "before_sha256": "b811d4b72c8a013f63b165b7a9573183033049c36f29134ebcdea354340cf353",
+      "after_sha256": "96931720f21ca6946e72374f63a962f356aa9f307f5cceeb2058ef519929628e",
+      "patch": "a4_entry.patch"
+    }
+  },
+  "patch_apply_order": [
+    "model.patch",
+    "losses.patch",
+    "a4_entry.patch"
+  ],
+  "reproduction": {
+    "interpreter": "/root/autodl-tmp/RepairScope/.venv/bin/python",
+    "python": "3.11.17",
+    "torch": "2.14.1+cu130",
+    "device": "NVIDIA GeForce RTX 4090",
+    "apply": "patch -p1 < <patch> from a clean base-commit checkout",
+    "original_tree": "/root/autodl-tmp/RepairScope-v2-original"
+  },
+  "external_not_packaged": {
+    "full_offline_gs_diagnosis": {
+      "path": "/root/autodl-tmp/RepairScope-server-notes/v2_supplement/OFFLINE_GS_DIAGNOSIS.json",
+      "sha256": "d8b8ac3240fdf6e9fc953ab2043596699191fb0ed2ed569ed6b55404d957157f"
+    },
+    "derived_labels_jsonl": {
+      "path": "/root/autodl-tmp/RepairScope-server-notes/v2_supplement/derived/follow_derived_labels.jsonl",
+      "sha256": "7cf668355b1035e42b3afcc396266c5ad038a62fd3a630a9ac83e9d2e5def6e0"
+    },
+    "h4_predictions": {
+      "path": "/root/autodl-tmp/RepairScope-server-notes/v2_supplement/runs/h4_hard_rollout/predictions.jsonl",
+      "sha256": "e773516157f4ccb2995272dd64dc1cbf911b3ba355b3864333280af834c4de06"
+    },
+    "h4_command_summary": {
+      "path": "/root/autodl-tmp/RepairScope-server-notes/v2_supplement/runs/h4_hard_rollout/command_summary.json",
+      "sha256": "4220100aed08067836079541ef95165c78f31f3792c150a0e292dedf79020207"
+    },
+    "boundary_checkpoint": {
+      "path": "/root/autodl-tmp/RepairScope-server-notes/v2_supplement/runs/training_boundary3/checkpoint.pt",
+      "sha256": "7a71d286909bde378d4d8369731cffbfa2d0b2989923c61603d18ef11935a0ea"
+    }
+  },
+  "cost_units": {
+    "actual_cumulative_environment": 340.0,
+    "this_export_environment": 0,
+    "this_export_actor": 0,
+    "this_export_optimizer_steps": 0,
+    "formal_budget_approved": false
+  },
+  "payload_files": [
+    {
+      "path": "BUGFIX_LOG_V2.md",
+      "bytes": 3969,
+      "sha256": "19c7d64142f88072dbac98fd6b6943075dff6f404e324b928d466dbf374dcd6e",
+      "purpose": "F1-F3 engineering bug details"
+    },
+    {
+      "path": "CHANGELOG_V2.md",
+      "bytes": 16890,
+      "sha256": "652eb21c71e2ebe82091fe6691896e4e88dbd532a77ff0a7e62a454107a2d47e",
+      "purpose": "full change log snapshot including F1-F3 and export entry"
+    },
+    {
+      "path": "COST_LEDGER.md",
+      "bytes": 3169,
+      "sha256": "3e2b5d172f2ef345e4e2496bef998a4ba58f817ec101b3045fd4ace1a636377c",
+      "purpose": "actual staged cost ledger vs estimates"
+    },
+    {
+      "path": "DIAGNOSIS_SUMMARY.md",
+      "bytes": 3710,
+      "sha256": "8385c3d19d57c03ed5c0220cbd53865deec48c2718accaeb001276117a756d38",
+      "purpose": "compact follower formula, derived projection, offline GS results"
+    },
+    {
+      "path": "FORMAL_DATA_MANIFEST.json",
+      "bytes": 3106,
+      "sha256": "2a34bc7300dd1749d86a2278f24b67b02c80e44d41b7089bb831ad616e0e7c40",
+      "purpose": "machine-readable formal-data plan/coverage"
+    },
+    {
+      "path": "FORMAL_DATA_PLAN.md",
+      "bytes": 7909,
+      "sha256": "fc68201e9ccff3f0b7dde88e8faf528bf3f7e2bae277b91db67691a005d26e5f",
+      "purpose": "full formal-data proposal, coverage gaps, costs, stop caps"
+    },
+    {
+      "path": "OFFLINE_GS_SUMMARY.json",
+      "bytes": 21641,
+      "sha256": "afcdafb832ff96d326b272b88cd62a93cdc87117b3a4db15c742fc01934b770a",
+      "purpose": "compact offline GS summary (no raw states)"
+    },
+    {
+      "path": "OURS_CONTINUATION_REPORT.md",
+      "bytes": 9425,
+      "sha256": "b8aa31d5d1e9696e807cf4e203075c15d43f1a8f5a13d438f7a5f4f73f840291",
+      "purpose": "current conclusion/evidence report"
+    },
+    {
+      "path": "PATCH_README.md",
+      "bytes": 2400,
+      "sha256": "8c6e8f9ff86483ad240db9ca33fc6dae1848d4463f4fc8ebb4d2f4825b57d147",
+      "purpose": "patch base/apply order/F1-F3 function mapping"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1144,
+      "sha256": "ab1f6db70c17df962a6026eabd27b3e9ae59ceb3bb34d26d9e06ca12c80d216c",
+      "purpose": "handoff index and limitations"
+    },
+    {
+      "path": "a4_entry.patch",
+      "bytes": 590,
+      "sha256": "42c95f70a209b45f58cb260573c819e9dd2ef1a5a86b57007ccfe245baf96587",
+      "purpose": "A4-only entry script patch"
+    },
+    {
+      "path": "derive_follow_labels.py",
+      "bytes": 8572,
+      "sha256": "131bd58d12184dfbe826bd62a02add0ce9b065fb212d4f75bbcf8e92be27b4a9",
+      "purpose": "offline derived-label transformation script"
+    },
+    {
+      "path": "derived/DERIVED_LABEL_MANIFEST.json",
+      "bytes": 3092,
+      "sha256": "28b8daad62905ca823f37a46b5fe061e99e6730e07ce8c17a024d2f824305c65",
+      "purpose": "derived-label output/input hashes and semantics"
+    },
+    {
+      "path": "derived/FOLLOWER_FORMULA_EVIDENCE.json",
+      "bytes": 1072,
+      "sha256": "ab2c186dd5ddffe2d5c544bb72846428ef6ee62c4bb8afbcc04200a3ce9f2b55",
+      "purpose": "follower_count formula evidence counts/hashes"
+    },
+    {
+      "path": "losses.patch",
+      "bytes": 3920,
+      "sha256": "8b02ba8b74334406a890e898212e6d24b11b8b30573ef8b78101a3b6cf73b0a9",
+      "purpose": "F2 actual source patch"
+    },
+    {
+      "path": "model.patch",
+      "bytes": 1755,
+      "sha256": "257eec3562d7f5dd3ec33307c196a058e4d9cc9a4d0e1b6cac686c174a0bc794",
+      "purpose": "F1+F3 actual source patch"
+    },
+    {
+      "path": "receipts/BOUNDARY_RECEIPT.md",
+      "bytes": 775,
+      "sha256": "54ff217046d02d385b8911dd151290a7e996bba12cf089e2da84bd642c59cb2a",
+      "purpose": "Boundary four-cell summary"
+    },
+    {
+      "path": "receipts/H4_RECEIPT.md",
+      "bytes": 952,
+      "sha256": "0619308f96aca88f21bad560dfd0532cfa95d851bf53782e4b83b9f164eddda0",
+      "purpose": "H4 hard-state recursion summary"
+    },
+    {
+      "path": "receipts/TEST_RECEIPT.md",
+      "bytes": 642,
+      "sha256": "9147d87a7f69b9c6d1f68be9d7fbd6bd20ce959721be01831f1e93f1e92d5370",
+      "purpose": "required-test result summary"
+    },
+    {
+      "path": "receipts/a4_dryrun.log",
+      "bytes": 15975,
+      "sha256": "a4878c89b77bba639a171df76cedd677abe75ff0e6d57103993acb98e0c6d72b",
+      "purpose": "A4-only DRY_RUN receipt"
+    },
+    {
+      "path": "receipts/training_boundary3.goal_supervision_audit.json",
+      "bytes": 722,
+      "sha256": "92658f811d31654bd459a7234826831a1379733d38fb54af8eb9005e4f5830c0",
+      "purpose": "Boundary/effective label counts"
+    },
+    {
+      "path": "receipts/training_boundary3.metrics.jsonl",
+      "bytes": 4902,
+      "sha256": "9778d24b398890cfd92012c67cade9ec333a095c73fe479ef161333a1d86a2fd",
+      "purpose": "Boundary continuation training metrics"
+    }
+  ],
+  "known_limitations": [
+    "test receipt is reported, not a retained pytest log",
+    "two failed/overwritten collection costs have no retained summary files",
+    "formal TRAIN_DATA/EVAL_DATA are not frozen; no formal budget",
+    "checkpoints/raw states/SQLite/weights are intentionally not packaged"
+  ]
+}

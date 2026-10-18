@@ -1,0 +1,23 @@
+{
+  "base_macbook_commit": "7517df3bc5d40cbcf4a6be4b7b0d1cf2d69df0b5",
+  "test_command": "PYTHONPATH=. ../WMA-Agents/.venv/bin/python -m pytest -q tests/repairscope",
+  "test_result": "253 passed in 5.38s",
+  "python": "3.12.14",
+  "torch": "2.10.0",
+  "device": "CPU",
+  "evidence_origin": "synthetic engineering regression; no scientific AppWorld run",
+  "real_environment_calls": 0,
+  "actor_calls": 0,
+  "formal_optimizer_steps": 0,
+  "synthetic_optimizer_steps": "Executed only by local regression tests, including the 30-epoch miniature schedule and resume checks",
+  "files": {
+    "repairscope/model.py": "82368a34f1c691060c804ba8e6735a408796f3f84d12d1a828f2435f493b0eb5",
+    "repairscope/losses.py": "633227eb33b3c37e396de9cb8d847b01719f7866129f766840d8203a8bd4699e",
+    "repairscope/training.py": "2856fe3e14349fe0d8106eec92e5c4ec7312653423a762849087dbfb061804fb",
+    "scripts/repairscope/a4_goal_sufficient.sh": "96931720f21ca6946e72374f63a962f356aa9f307f5cceeb2058ef519929628e",
+    "tests/repairscope/test_server_fixes.py": "9b71566a053aa333c3b42b2c84779c5997e8817a36f175a70d22ae4c9cee86f7",
+    "tests/repairscope/test_training_schedule.py": "26178da472bff69bb1742ae03f930e1cc1513309c47bf7d92458e9a788281213",
+    "tests/repairscope/test_cli_scripts.py": "0b823065c03a2a773ef9e166f11d6470e18260ce73b1aef8a72e631491886c3c",
+    "tests/repairscope/test_v2_protocol.py": "85585d65588f920a5c33f4b2456c789fb6ce26f216412c0b0e8a679bd2cda72b"
+  }
+}

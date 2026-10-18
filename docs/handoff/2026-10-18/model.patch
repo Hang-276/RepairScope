@@ -1,0 +1,27 @@
+--- a/repairscope/model.py
++++ b/repairscope/model.py
+@@ -153,7 +153,10 @@
+ 
+     def _goal_context(self, batch, x):
+         context = torch.zeros_like(x)
+-        embeddings = self.goal_encoder(batch["goal_features"])
++        # Under BF16 autocast the projection can be float32 while the state
++        # embedding is bf16. Match the destination dtype before scatter; the
++        # cast is differentiable and does not change the public goal inputs.
++        embeddings = self.goal_encoder(batch["goal_features"]).to(dtype=x.dtype)
+         bound = embeddings * batch["goal_mask"].unsqueeze(-1)
+         context.scatter_add_(1, batch["goal_field"].unsqueeze(-1).expand_as(bound), bound)
+         # Goals outside retrieved fields still condition the risk estimate.
+@@ -258,6 +261,12 @@
+                 position = self.time_embedding(torch.arange(length, device=x.device)).view(1, 1, length, d)
+                 sequence = (sequence + position).reshape(b * n, length, d)
+                 padding = ~torch.cat((old_mask, torch.ones(b, n, 1, dtype=torch.bool, device=x.device)), dim=-1).reshape(b * n, length)
++                # With an empty (or partially empty) history, early causal
++                # queries could otherwise attend only to padded keys, making
++                # softmax(-inf) NaN in fp32 inference. Keep the oldest history
++                # slot valid; its embedding is the stored zero when absent.
++                padding = padding.clone()
++                padding[:, 0] = False
+                 causal = torch.triu(torch.ones(length, length, dtype=torch.bool, device=x.device), diagonal=1)
+                 for layer in self.temporal:
+                     sequence = layer(sequence, src_mask=causal, src_key_padding_mask=padding)

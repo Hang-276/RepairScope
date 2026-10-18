@@ -29,7 +29,6 @@ def json_stream(text):
     ('a1_dynamics.sh', 'dynamics', 'boundary', 0),
     ('a2_paired_effect.sh', 'paired_effect', 'paired', 1),
     ('a3_full.sh', 'full', 'boundary', 1),
-    ('a4_goal_sufficient.sh', 'goal_sufficient', 'goal_sufficiency', 1),
 ])
 def test_shell_runs_resolve_correct_ablations_without_training(script, variant, loss_key, expected, tmp_path):
     env = {**os.environ, 'DRY_RUN': '1', 'SEEDS': '100 101',

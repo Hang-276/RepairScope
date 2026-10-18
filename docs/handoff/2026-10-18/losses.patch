@@ -1,0 +1,60 @@
+--- a/repairscope/losses.py
++++ b/repairscope/losses.py
+@@ -15,6 +15,13 @@
+     return (value * weight).sum() / weight.sum().clamp_min(1)
+ 
+ 
++def _bce(p: torch.Tensor, target: torch.Tensor, reduction: str = "none") -> torch.Tensor:
++    """Probability BCE outside autocast, preserving the existing semantics."""
++    with torch.autocast(device_type=p.device.type, enabled=False):
++        return F.binary_cross_entropy(p.float().clamp(1e-6, 1 - 1e-6),
++                                      target.float(), reduction=reduction)
++
++
+ def transition_losses(output: dict, batch: dict, config: dict) -> dict:
+     weights = config.get("loss", {})
+     mask = batch["audit_mask"] & batch["mask"]
+@@ -44,7 +51,7 @@
+     target = torch.tensor(new_targets, dtype=output["escape_logits"].dtype, device=mask.device)
+     valid = torch.tensor(new_valid, dtype=torch.bool, device=mask.device)
+     selected_escape = masked_mean(F.binary_cross_entropy_with_logits(output["escape_logits"], target, reduction="none"), valid)
+-    expansion = masked_mean(F.binary_cross_entropy(output["expansion"].clamp(1e-6, 1-1e-6), target, reduction="none"), valid)
++    expansion = masked_mean(_bce(output["expansion"], target), valid)
+     escape_loss = (recorded_escape + selected_escape + expansion) / 3
+     null_loss = masked_mean(F.binary_cross_entropy_with_logits(output["null_logits"], batch["target_null"], reduction="none"), mask & batch["nullable"] & (batch["target_exists"] > 0))
+     patch_loss = op_loss + number_loss + copy_loss + null_loss
+@@ -72,21 +79,21 @@
+         selected = {key for j, key in enumerate(batch["metadata"][i]["keys"]) if bool(output["scope"][i, j])}
+         escaped = bool(keys - selected)
+         if escaped or evidence["valid"]:
+-            p = output["goal_expansion"][i].clamp(1e-6, 1-1e-6)
+-            losses.append(F.binary_cross_entropy(p, p.new_tensor(float(escaped))))
++            p = output["goal_expansion"][i]
++            losses.append(_bce(p, p.new_tensor(float(escaped))))
+     zero = output["scope_logits"].sum() * 0
+     return torch.stack(losses).mean() if losses else zero, count, positives
+ 
+ 
+ def rollout_state_loss(output: dict, batch: dict) -> torch.Tensor:
+     state, mask = output["soft_state"], batch["audit_mask"] & batch["mask"]
+-    exists = masked_mean(F.binary_cross_entropy(state["exists"].clamp(1e-6, 1-1e-6), batch["target_exists"], reduction="none"), mask)
++    exists = masked_mean(_bce(state["exists"], batch["target_exists"]), mask)
+     number = masked_mean(F.smooth_l1_loss(state["numeric"], batch["target_numeric"], reduction="none"), mask & (batch["kind"] == 0) & (batch["target_exists"] > 0) & (batch["target_null"] < 0.5))
+     value_mask = mask & (batch["kind"] != 0) & (batch["target_value"] >= 0) & (batch["target_exists"] > 0) & (batch["target_null"] < 0.5)
+     safe_target = batch["target_value"].clamp_min(0)
+     probability = state["values"].gather(-1, safe_target.unsqueeze(-1)).squeeze(-1)
+     value = masked_mean(-probability.clamp_min(1e-8).log(), value_mask)
+-    null = masked_mean(F.binary_cross_entropy(state["null"].clamp(1e-6, 1-1e-6), batch["target_null"], reduction="none"), mask & batch["nullable"] & (batch["target_exists"] > 0))
++    null = masked_mean(_bce(state["null"], batch["target_null"]), mask & batch["nullable"] & (batch["target_exists"] > 0))
+     return exists + number + value + null
+ 
+ 
+@@ -187,7 +194,7 @@
+                 if target is None:
+                     continue
+                 support = _support(output, batch, left, right, key, config)
+-                supports.append(F.binary_cross_entropy(support, support.new_tensor(target)))
++                supports.append(_bce(support, support.new_tensor(target)))
+                 condition_scores[condition][key] = (support, target)
+                 li = batch["metadata"][left]["keys"].index(key)
+                 ri = batch["metadata"][right]["keys"].index(key)

@@ -122,9 +122,31 @@ def test_initial_v2_dry_run_is_a0_through_a4_then_only_required_ablations(tmp_pa
     assert not Path(env["RUN_ROOT"]).exists()
 
 
+def test_ours_only_entry_runs_exactly_the_four_fixed_protocol_stages(tmp_path):
+    env = _environment(tmp_path)
+    result = _script("a4_goal_sufficient.sh", env)
+    assert result.returncode == 0, result.stderr
+    plans = _stream(result.stdout)
+    assert [plan["command"] for plan in plans] == ["train", "predict-eval", "calibrate", "evaluate"]
+    for plan in plans:
+        config = plan["config"]
+        assert config["variant"] == "goal_sufficient"
+        assert config["train"]["seed"] == 100
+        assert config["train"]["epochs"] == 30 and config["train"]["max_steps"] is None
+        assert config["train"]["horizon"] == 4
+        assert config["model"]["scope_budget"] == 128
+        assert config["model"]["candidate_limit"] == 256
+        assert config["data"]["train"] == env["TRAIN_DATA"]
+        assert config["data"]["dev"] == env["EVAL_DATA"]
+        assert config["loss"]["goal_sufficiency"] == 1
+        assert plan["will_execute"] is False
+    assert not Path(env["RUN_ROOT"]).exists()
+
+
+@pytest.mark.parametrize("entry", ["run_goal_sufficient_main.sh", "a4_goal_sufficient.sh"])
 @pytest.mark.parametrize("case", ["missing_root", "legacy_name", "existing_root",
                                   "extra_seeds", "changed_loss", "changed_epochs"])
-def test_initial_v2_rejects_overwrite_and_unplanned_protocol_changes(case, tmp_path):
+def test_initial_v2_rejects_overwrite_and_unplanned_protocol_changes(entry, case, tmp_path):
     env, args = _environment(tmp_path), ()
     if case == "missing_root":
         env.pop("RUN_ROOT")
@@ -138,7 +160,7 @@ def test_initial_v2_rejects_overwrite_and_unplanned_protocol_changes(case, tmp_p
         args = ("--set=loss.goal_sufficiency=0",)
     elif case == "changed_epochs":
         args = ("--set", "train.epochs=60")
-    result = _script("run_goal_sufficient_main.sh", env, *args)
+    result = _script(entry, env, *args)
     assert result.returncode == 2
     assert not result.stdout
 

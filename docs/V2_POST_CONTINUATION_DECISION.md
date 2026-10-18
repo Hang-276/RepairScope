@@ -1,5 +1,7 @@
 # RepairScope v2：离线续接后的结论与下一步
 
+**状态更新：本轮交付已收到并核验，不再执行本文第4节的导出任务。当前执行[工程合入与服务器更新](V2_HANDOFF_INTEGRATION.md)。原证据与预算边界保留。**
+
 日期：2026-10-18（Asia/Shanghai）。本文件更新当前执行状态；[Ours-only续接说明](CLAUDE_OURS_ONLY_CONTINUATION.md)中的预算、信息边界和逐项Markdown记录要求继续有效。该次离线续接已经结束，不重新执行其中的派生标签修复、GS诊断或Smoke。
 
 ## 1. 当前决定
