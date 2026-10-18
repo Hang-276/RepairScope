@@ -1,15 +1,19 @@
 # RepairScope
 
+**当前版本：RepairScope v2 — Goal-Sufficient Dynamic Scope Learning。** 在固定字段预算下，使用真实反事实的目标决策监督学习 Scope。完整方法和 Eval 见 [v2 Proposal](docs/RepairScope_v2_Proposal.md)，服务器任务见 [v2 Claude 提示词](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md)。主入口为 `scripts/repairscope/run_goal_sufficient_main.sh`；下方旧方法说明和脚本保留用于 v1.1 对照，不启动旧版仅 A1/A3 流程。
+
 **面向目标保护的动态作用范围学习：结合 JEPA 的预测思想与结构化时序 Transformer。**
 
 本仓库在 [WMA 官方实现](https://github.com/kyle8581/WMA-Agents) 上实现 RepairScope，用于 AppWorld。我们学习动作会影响哪些字段、影响如何随条件变化，以及当前预测范围是否遗漏副作用；再用同一个预测器支持执行前的动作选择与执行后的修复。研究假设由主实验检验，目前不宣称已有真实任务提点。
 
-**服务器 Claude 必须先阅读 [CLAUDE.md](CLAUDE.md) 和 [交接提示词](docs/CLAUDE_SERVER_HANDOFF.md)。Idea 与机制被冻结：机制相关 bug 必须停止受影响实验并等待用户审批；不改变方法语义的工程 bug 可自行修复，修复日志必须放在仓库外。**
+**服务器 Claude 先阅读 [CLAUDE.md](CLAUDE.md) 和 [当前交接任务](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md)。本次 v2 改造已获用户授权；其它机制变更仍需按交接边界处理。**
 
 ## 文档入口
 
 | 文档 | 内容 |
 | --- | --- |
+| [v2 Proposal + Evaluation](docs/RepairScope_v2_Proposal.md) | 当前完整研究设计、损失、指标和跨环境计划 |
+| [v2 服务器 Claude 交接](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md) | 当前执行任务、现有服务器修复与输入缺口 |
 | [研究 proposal](docs/REPAIRSCOPE_PROPOSAL.md) | 完整问题、架构、损失、实验计划与文献定位 |
 | [方法与实现](docs/REPAIRSCOPE.md) | 实际复用 WMA 的范围、默认配置、消融脚本索引 |
 | [实现对应表](docs/IMPLEMENTATION_COVERAGE.md) | 设计到代码的对应关系及实现边界 |

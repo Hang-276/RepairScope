@@ -1,3 +1,5 @@
+> 历史 v1.1 文档。当前 v2 执行安排以 [新版服务器任务](CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md) 和 [v2 Proposal](RepairScope_v2_Proposal.md) 为准；下文旧阶段限制不构成当前启动指令。
+
 # 给服务器 Claude 的完整交接指令
 
 下列内容可作为一个完整任务交给服务器上的 Claude。交付仓库为 `https://github.com/Hang-276/RepairScope.git`，使用用户指定的交付 commit；在实际服务器 checkout 中执行，不要使用 MacBook 路径或沿用旧代码版本。
