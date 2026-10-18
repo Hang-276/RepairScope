@@ -2,6 +2,8 @@
 
 以 [proposal](REPAIRSCOPE_PROPOSAL.md) 为方法定义，以实际代码、配置和执行收据为工程依据。首版借鉴 JEPA 的预测式学习思想，直接监督结构化状态，不增加 proposal 未要求的 EMA teacher。
 
+当前阶段仅授权 `run_primary_experiment.sh` 的 A1/A3、种子100主对照。下表说明完整实现能力，其余实验入口保留待后续决定，不自动运行。
+
 | 设计部分 | 实现位置 | 已完成的本地工程验证 |
 | --- | --- | --- |
 | WMA 冻结策略、候选聚合、预测后重排 | `agent/wma_core.py`、`agent/repairscope_agent.py`、`repairscope/actor.py` | 原 WMA 与新入口共用函数；Top-k、重复候选、稳定排序、桥接返回契约 |

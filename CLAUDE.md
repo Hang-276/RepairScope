@@ -1,6 +1,10 @@
 # RepairScope 服务器工作约定
 
-当前任务是把已经确定的 RepairScope 实现接入真实服务器，完成既定主实验和消融。研究 idea 已冻结。请先完整阅读：
+当前正式 eval 固定为 AppWorld 官方 `test_normal` 全集，A1/A3 使用同一官方任务列表；训练仅用 `train`，`dev` 仅用于 H=1/2/4 与一次阈值选择。本阶段不运行 `test_challenge`，不使用自选 `TASK_FILE` 子集或 synthetic 正式结果。
+
+**最新阶段授权优先于完整 proposal 和其它文档的执行安排：当前只进行一组主对照，A1（dynamics）vs A3（完整 RepairScope），两者都固定 seed=100，使用同一共享训练数据、评测集和预算。** 唯一实验启动入口是 `scripts/repairscope/run_primary_experiment.sh`。完成这组对照及结果汇总后停止，等待用户决定后续。
+
+不得运行 A0、A2、A4、A5、其它随机种子、主 B 或任何额外消融，也不得自动接着运行 `run_main_a.sh`、`run_main_b.sh`、`run_all_ablations.sh` 或 `ablate_no_probing.sh`。完整 A/B/消融保留为未来研究计划，不构成本阶段执行授权。研究 idea 本身保持冻结。请先完整阅读：
 
 1. `README.md`
 2. `docs/REPAIRSCOPE_PROPOSAL.md`
@@ -16,7 +20,8 @@
 
 - MacBook 本地 **84 项工程测试已通过**。已有最小 CPU FP32 smoke、H=1/2/4 接口、阈值入口和反事实更新闭环，证据全部为 synthetic fixture。
 - 尚未执行真实 AppWorld、Actor 模型服务、CUDA/BF16 或正式 GPU 主实验。不要将本地工程指标写成真实提点、TGC/SGC 或服务器就绪证明。
-- 在服务器安装并对齐必要环境后，只做确有必要的最小接入 smoke，随后直接执行既定主实验及消融。不得追加 pilot、网格搜索、多轮小规模有效性验证，或因没有提点自行改 idea。
+- 本阶段允许必要的安装、真实公开映射对齐、一次共享自然轨迹与合法反事实训练数据采集，以及 dev 常规冻结轨迹。A3 的 Boundary/Escape 训练需要这些真实分支和审计标签，不能因只跑一组对照而删掉机制或所需数据。用于采集的冻结 Actor 轨迹不等于启动 A0 性能对照。
+- 只做确有必要的一次最小服务器接入 smoke，随后执行 `bash scripts/repairscope/run_primary_experiment.sh`。两配置的 H=1/2/4 指标及每个 checkpoint 在 dev 上一次选择并冻结阈值属于同一个主对照，不是追加实验。不得增加 pilot、网格搜索、其它种子、多轮小规模有效性验证，或因没有提点自行改 idea。
 
 ## 冻结的方法
 
@@ -24,7 +29,9 @@ Frozen Actor 与 WMA 共享候选聚合/稳定重排；单一 B-lite Predictor �
 
 不得自行改变研究机制、架构、损失及权重语义、采样公式、标签、目标谓词含义、指标及原生聚合口径、数据划分、控制决策语义或实验公平性。不得引入额外 planner/teacher、训练 Actor、以隐藏状态补充合法观测、把 unknown 当不变或假值，或以 fixture 替代真实结果。
 
-主 A 的 A0–A5 使用冻结输入与统一资源口径；A1–A5 共享一次采集的自然轨迹及反事实数据。主 B 的四种策略使用对应种子同一 A3 checkpoint、同一合法候选池、相同损失和真实执行预算。前缀重放、条件构造、查询、失败及续跑均计费。官方测试禁止更新及分支搜索；冻结查询结果不得回流训练。
+当前 A1 和 A3 共享一次采集的全部自然轨迹及合法反事实数据。A1 依既定定义使用 Step+Rollout，把反事实分支作为普通 transitions；A3 保留完整 Boundary/Escape、Dynamic Scope 和控制闭环。保持同一 Actor/提示/候选缓存、候选数、训练容量与计划、正式评测集及预算，不能只给完整方法更多数据或资源。前缀重放、条件构造、查询、失败及续跑完整计费；官方测试禁止更新及分支搜索。
+
+完整 A0–A5、主 B 四采样策略和各项消融的机制定义仍须保留，但本阶段一律不运行。主对照没有提点也必须如实汇总并停止，不能自动增加实验或重复训练。
 
 ## 工程修复与机制问题的界线
 

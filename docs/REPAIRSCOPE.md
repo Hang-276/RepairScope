@@ -50,9 +50,11 @@ bash scripts/repairscope/local_smoke.sh
 
 ## 服务器主实验
 
+**当前授权范围仅为一个主对照：A1 普通预测器 vs A3 完整方法，种子100。** 使用 `scripts/repairscope/run_primary_experiment.sh`，共享训练数据、评测集、容量、训练计划和预算；完成结果汇总后停止等待用户决定。其余基线、其它种子、主 B 及所有消融均暂缓。下面的完整脚本索引表示实现能力，不代表当前执行授权。
+
 完整指令、输入映射及数据准备见 [SERVER_RUNBOOK.md](SERVER_RUNBOOK.md)。主实验不设置额外 pilot 或分阶段有效性 gate。`doctor` 只是可选依赖诊断，不触发采集或训练。
 
-所有脚本支持 `DRY_RUN=1`，只解析配置和命令。`SEEDS="100 101 102"` 为默认三种子；`RUN_ROOT`、`CONFIG`、`TRAIN_DATA`、`EVAL_DATA`、`TASK_FILE`、`REPAIRSCOPE_PYTHON` 可配置。路径支持空格。
+所有脚本支持 `DRY_RUN=1`，只解析配置和命令。完整计划脚本的 `SEEDS="100 101 102"` 为默认三种子，当前 `run_primary_experiment.sh` 固定 `100`；`RUN_ROOT`、`CONFIG`、`TRAIN_DATA`、`EVAL_DATA`、`TASK_FILE`、`REPAIRSCOPE_PYTHON` 可配置。当前正式 eval 使用官方 `test_normal` 全集，不设置自选 `TASK_FILE` 子集。路径支持空格。
 
 | 实验 | 独立启动脚本 |
 | --- | --- |
@@ -74,7 +76,7 @@ bash scripts/repairscope/local_smoke.sh
 | B 新颖性/可学习性 | `scripts/repairscope/probe_novelty_learnability.sh` |
 | B 风险引导探索 | `scripts/repairscope/probe_risk.sh` |
 
-`run_main_a.sh` 执行 A0–A5；`run_main_b.sh` 执行四种探索；`run_all_ablations.sh` 执行模型/损失消融。探索消融单独使用 `ablate_no_probing.sh`。
+当前入口 `run_primary_experiment.sh` 仅执行 A1/A3、固定种子100。保留的完整计划入口 `run_main_a.sh` 执行 A0–A5，`run_main_b.sh` 执行四种探索，`run_all_ablations.sh` 执行模型/损失消融，`ablate_no_probing.sh` 执行探索消融；这些完整计划入口本阶段不运行。
 
 主 A 共享同一数据、Actor、候选数、选择器及检查/修复预算。主 B 共享初始 checkpoint、合法候选实验池、损失与真实执行预算；模型前向与时延另列。每次分支包括完整前缀、条件、验证查询和失败调用的真实成本，预算耗尽即停止。
 
