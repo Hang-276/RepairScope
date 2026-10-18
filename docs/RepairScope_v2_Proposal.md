@@ -4,7 +4,7 @@
 
 版本：2.0 完整研究方案，2026-10-18。
 
-代码依据：分支 `feat/goal-sufficient-scope`，核心提交 `62fd96e54891b799cf0819ae5e0c74253363f040`。本文整合研究动机、相关工作、形式化定义、架构、训练与完整 Evaluation Plan。旧版 [v1.1 Proposal](REPAIRSCOPE_PROPOSAL.md) 保留追溯；服务器路径与启动操作见 [Claude 实验交接](CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md)。
+代码依据：默认分支 `main`（新版交付分支 `feat/goal-sufficient-scope` 同步），核心提交 `62fd96e54891b799cf0819ae5e0c74253363f040`。本文整合研究动机、相关工作、形式化定义、架构、训练与完整 Evaluation Plan。旧版独立流程已从当前树移除，[v1.1 Proposal](https://github.com/Hang-276/RepairScope/blob/30e17abc4f59f4b0b4f2e84ada5c8987112b833e/docs/REPAIRSCOPE_PROPOSAL.md) 仅在 Git 历史中追溯；服务器路径与启动操作见 [Claude 实验交接](CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md)。
 
 **证据状态：本文是待检验研究方案。代码、合成测试和静态检查不构成真实 AppWorld 方法效果、RTX 4090 性能、组合泛化或跨环境迁移证据。文中明确区分研究定义、当前实现和后续计划，不将尚未完成的评估写成结果。**
 
@@ -16,7 +16,7 @@
 
 RepairScope v2 研究 Goal-Sufficient Dynamic Scope Learning。方法保留 Frozen Actor、结构化字段表示、B-lite Predictor、动作条件关系块、字段级时序注意力、类型化 State Patch、共享参数多步递推、合法反事实采集与 Goal Evaluator。新增目标是：利用相同合法前缀上的真实 action/reference 执行结果，比较充分离线信息与受限 Scope 下的动作偏好，将决策蒸馏损失直接传入实际 Scope 选择器。硬前向保持固定字段预算，反向采用预算质量保持的直通松弛。Boundary、State Escape 与 Goal-Relevant Escape 分别监督条件化作用支持、一般遗漏和可验证的目标保护遗漏。
 
-研究主张通过 AppWorld 上共享数据、相同 Actor、相同容量和预算的 A0–A4 对照、四项消融及独立预算化探索 B 检验。核心证据包括任务完成与目标损害、Goal-Relevant Recall@B、离线候选决策 Regret、硬 H=1/2/4 递推、标签覆盖率和真实成本。其他 benchmark 保留为分层候选，先核验环境恢复、合法分支和目标损害真值。当前实现求解固定预算下的经验决策充分性，不声称恢复最小真实因果范围，也不提供离散最优性或一般安全保证。
+研究主张通过 AppWorld 上共享数据、相同 Actor、相同容量和预算的 A0–A4 对照、四项消融及独立预算化探索 B 检验。核心证据包括任务完成与目标损害、Goal-Relevant Recall@B、离线候选决策 Regret、硬 H=1/2/4 递推、标签覆盖率和真实成本。其他 benchmark 保留为分层候选，先核验环境恢复、合法分支和目标损害真值。当前实现学习固定预算下的经验决策充分性，不声称恢复最小真实因果范围，也不提供离散最优性或一般安全保证。
 
 ## 1. 研究动机
 

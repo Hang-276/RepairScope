@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Source once per stage. Existing v1.1 wrappers retain their historical behavior.
+# Shared arguments for the current v2 main and exploration experiments.
 set -euo pipefail
 if [[ "${SEEDS:-100}" != 100 ]]; then
   echo 'The initial v2 protocol is fixed to SEEDS=100.' >&2

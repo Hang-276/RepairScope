@@ -67,7 +67,8 @@ def test_v2_variants_keep_model_capacity_and_fixed_training_budget():
     assert load_config(variant="no_goal_relevant_escape")["loss"]["goal_relevant_escape"] == 0
     static = load_config(variant="v2_static_scope")
     assert static["model"]["static_scope"] and static["loss"]["goal_sufficiency"] == 0
-    assert DEFAULTS["model"]["goal_sufficient"] is False
+    assert DEFAULTS["variant"] == "goal_sufficient"
+    assert DEFAULTS["model"]["goal_sufficient"] is True
 
 
 def test_v2_yaml_and_explicit_legacy_baseline_are_unambiguous():

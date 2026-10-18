@@ -1,5 +1,5 @@
 experiment: repairscope
-variant: full
+variant: goal_sufficient
 model:
   d_model: 384
   n_heads: 6
@@ -15,10 +15,10 @@ model:
   learned_edges: true
   temporal: true
   static_scope: false
-  goal_sufficient: false
+  goal_sufficient: true
 loss:
-  goal_sufficiency: 0.0
-  goal_relevant_escape: 0.0
+  goal_sufficiency: 1.0
+  goal_relevant_escape: 1.0
 goal_decision:
   temperature: 1.0
   protected_rule: satisfied_and_effective_protected

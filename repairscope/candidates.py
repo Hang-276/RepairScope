@@ -1,8 +1,8 @@
-"""Dependency-free WMA candidate aggregation and predicted-state reranking.
+"""Candidate aggregation and stable predicted-state ranking for RepairScope.
 
 Extracted from WMAgent.next_action. Stable first-occurrence ordering, frequency
 Top-k, and probabilities renormalized over retained actions match upstream WMA.
-Both the original browser agent and RepairScope execute these functions.
+The original browser agent is no longer part of this repository.
 """
 from __future__ import annotations
 
@@ -24,12 +24,6 @@ def aggregate_candidates(responses: Iterable, parse: Callable = lambda value: va
     selected = sorted(candidates.values(), key=lambda item: item["count"], reverse=True)[:count]
     denominator = sum(item["count"] for item in selected)
     return [{**item, "prob": item["count"] / denominator} for item in selected]
-
-
-def generate_candidates(policy, prompt, context: dict, parse: Callable, count: int):
-    """Run upstream WMA's exact prompt.invoke -> policy.generate call contract."""
-    response = policy.generate([prompt.invoke(context)])
-    return response, aggregate_candidates(response.generations[0], parse=parse, count=count)
 
 
 def stable_rank(candidates, predictions, utilities):

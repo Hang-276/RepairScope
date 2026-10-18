@@ -27,7 +27,7 @@ def test_dev_threshold_masks_unknowns_respects_budget_and_freezes_checkpoint(tmp
     assert value['dev_records'] == 3
     assert value['dev_check_rate'] <= 1/3
     assert value['risk_threshold'] == 0.9
-    config = load_config(overrides=[f'controller.calibration_file={receipt}'])
+    config = load_config(variant='full', overrides=[f'controller.calibration_file={receipt}'])
     assert apply_calibration(config, checkpoint)['controller']['risk_threshold'] == 0.9
     checkpoint.write_bytes(b'different-model')
     with pytest.raises(ValueError, match='checkpoint'):

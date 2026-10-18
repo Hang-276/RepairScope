@@ -12,17 +12,17 @@ import yaml
 
 DEFAULTS: dict[str, Any] = {
     "experiment": "repairscope",
-    "variant": "full",
+    "variant": "goal_sufficient",
     "model": {
         "d_model": 384, "n_heads": 6, "relation_layers": 4,
         "temporal_layers": 2, "history": 8, "scope_budget": 128,
         "candidate_limit": 256, "feature_dim": 64, "value_slots": 64,
         "dropout": 0.1, "backbone": "blite", "learned_edges": True,
-        "temporal": True, "static_scope": False, "goal_sufficient": False,
+        "temporal": True, "static_scope": False, "goal_sufficient": True,
     },
     "loss": {"scope": 1.0, "patch": 1.0, "goal": 1.0, "rollout": 1.0,
              "boundary": 1.0, "escape": 1.0, "paired": 0.0,
-             "goal_sufficiency": 0.0, "goal_relevant_escape": 0.0},
+             "goal_sufficiency": 1.0, "goal_relevant_escape": 1.0},
     "goal_decision": {"temperature": 1.0, "progress_weight": 1.0,
                       "damage_weight": 5.0, "cost_weight": 0.01,
                       "protected_rule": "satisfied_and_effective_protected"},
@@ -138,23 +138,36 @@ def load_config(path: str | Path | None = None, overrides: list[str] | None = No
                 variant: str | None = None) -> dict:
     explicit = _read(Path(path), set()) if path else {}
     config = merge(DEFAULTS, explicit)
-    selected = variant or config.get("variant", "full")
-    if selected not in VARIANTS:
-        raise ValueError(f"Unknown variant {selected!r}; choose {sorted(VARIANTS)}")
-    config = merge(config, VARIANTS[selected])
-    config["variant"] = selected
-    _resolve_goal_decision(config, explicit)
+    parsed_overrides = []
     for expression in overrides or []:
         key, separator, raw = expression.partition("=")
         if not separator or not key or any(not part for part in key.split(".")):
             raise ValueError(f"Expected key.path=value, got {expression!r}")
+        parsed_overrides.append((key, yaml.safe_load(raw)))
+    # Select the actual objective before merging its switches. An explicit
+    # --variant wins over --set variant=..., which wins over the YAML/default.
+    # Applying variant only as a late label could silently train A3 with v2 loss.
+    selected = config.get("variant", DEFAULTS["variant"])
+    for key, value in parsed_overrides:
+        if key == "variant":
+            selected = value
+    if variant is not None:
+        selected = variant
+    if not isinstance(selected, str) or selected not in VARIANTS:
+        raise ValueError(f"Unknown variant {selected!r}; choose {sorted(VARIANTS)}")
+    config = merge(config, VARIANTS[selected])
+    config["variant"] = selected
+    _resolve_goal_decision(config, explicit)
+    for key, value in parsed_overrides:
+        if key == "variant":
+            continue
         current = config
         parts = key.split(".")
         for part in parts[:-1]:
             if part not in current or not isinstance(current[part], dict):
                 raise ValueError(f"Unknown configuration section {key}")
             current = current[part]
-        current[parts[-1]] = yaml.safe_load(raw)
+        current[parts[-1]] = value
         if len(parts) == 2 and parts[0] in {"controller", "goal_decision"} and parts[1] in _UTILITY_KEYS:
             other = "controller" if parts[0] == "goal_decision" else "goal_decision"
             config[other][parts[1]] = current[parts[-1]]

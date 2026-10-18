@@ -1,4 +1,4 @@
-"""Train, collect, evaluate and ablate without importing the WebArena stack."""
+"""RepairScope v2: goal-sufficient dynamic scope learning and evaluation."""
 from __future__ import annotations
 
 import argparse
@@ -16,10 +16,12 @@ from .provenance import receipt, write_json
 
 
 def _common(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", default=None)
-    parser.add_argument("--variant", choices=sorted(VARIANTS))
+    parser.add_argument("--config", default=None,
+                        help="YAML configuration; defaults to RepairScope v2")
+    parser.add_argument("--variant", choices=sorted(VARIANTS),
+                        help="Override configuration variant (default: goal_sufficient; full is the explicit A3 baseline)")
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
-    parser.add_argument("--output-dir", default="runs/repairscope")
+    parser.add_argument("--output-dir", default="runs/repairscope_v2")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--dry-run", action="store_true",
                         help="Resolve and validate a plan without environment, API or training calls")

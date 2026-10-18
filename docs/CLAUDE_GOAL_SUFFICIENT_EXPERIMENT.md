@@ -1,13 +1,13 @@
 # RepairScope v2：服务器 Claude 实验执行任务
 
-本文件是完整、自包含的服务器交接任务。用户已决定放弃原版 A1 vs A3 方案，直接执行 RepairScope v2。代码由 MacBook 提交并推送到 GitHub；服务器只 clone 指定分支、核对代码版本并执行实验，不在服务器提交或推送代码。不要启动旧版入口，也不要覆盖原仓库、环境、数据、checkpoint 或其他任务。
+本文件是完整、自包含的服务器交接任务。用户已决定放弃原版 A1 vs A3 方案，直接执行 RepairScope v2。代码由 MacBook 提交并推送到 GitHub；服务器只 clone 默认新版分支、核对代码版本并执行实验，不在服务器提交或推送代码。不要启动旧版入口，也不要覆盖原仓库、环境、数据、checkpoint 或其他任务。
 
 ## 1. 代码与已有状态
 
 - 仓库：`https://github.com/Hang-276/RepairScope.git`
-- 分支：`feat/goal-sufficient-scope`
+- 当前默认分支：`main`；新版交付分支 `feat/goal-sufficient-scope` 同步保留。普通 clone 即得到新版方法。
 - v2 Goal-Sufficiency 核心代码提交：`62fd96e54891b799cf0819ae5e0c74253363f040`（必须是服务器 clone 后分支 HEAD 的祖先）；同时记录 clone 时实际 branch、完整 HEAD SHA 和工作区状态。随该分支发布的 proposal 和本提示词也须存在。
-- 来源分支：`feat/goal-sufficient-scope`。只有指定分支及上述核心代码提交已出现在 GitHub 后才开始接入；若不可见或祖先检查失败，报告代码同步阻塞，不用旧版代码启动。
+- 版本核验：默认 `main` 必须包含上述核心代码提交及新版文档，核验后才开始接入；若不可见或祖先检查失败，报告代码同步阻塞，不用旧版代码启动。
 - 原服务器仓库：`/root/autodl-tmp/RepairScope`，原分支 `rs/primary-a1-vs-a3`。
 - 已取回的服务器修复提交：`b3b7df93b18ca73ac9f29e4bf69ca989027b89b0`，包含复合目标表达式、compact audit、Actor 计费、匹配前缀与监督诊断修复。
 - 新版准备目录：优先 `/root/autodl-tmp/RepairScope-v2`。若该路径已存在，先只读检查其内容；不得覆盖、清空或重置。选一个未占用的明确 sibling 目录（例如 `RepairScope-v2-<branch>-<date>`），并在后续命令中一致使用该绝对路径。
@@ -53,14 +53,14 @@ AppWorld 已记录 revision `42b5bcf3cd334fee33f0c37c02070a9f5807add5`、数据 
 
 ### 从 GitHub 安全 clone
 
-只有 MacBook 已将 `feat/goal-sufficient-scope` 推送至 GitHub 后才执行。先检查目标路径是否存在；只有路径不存在或为空目录时才 clone，不复用原服务器 checkout：
+只有 MacBook 已将新版默认 `main` 推送至 GitHub 后才执行。先检查目标路径是否存在；只有路径不存在或为空目录时才 clone，不复用原服务器 checkout：
 
 ```bash
 if [ -e /root/autodl-tmp/RepairScope-v2 ]; then
   echo '目标目录已存在；先检查并选择未占用的 sibling 目录，禁止覆盖。'
   exit 2
 fi
-git clone --branch feat/goal-sufficient-scope --single-branch \
+git clone --branch main --single-branch \
   https://github.com/Hang-276/RepairScope.git \
   /root/autodl-tmp/RepairScope-v2
 ```
@@ -113,7 +113,7 @@ export APPWORLD_ROOT=/root/autodl-tmp/RepairScope/vendor/appworld
   --output-dir "$SMOKE_OUTPUT"
 ```
 
-上面的路径变量须由实际产物填入；Scope Budget 保持正式 128，candidate_limit=256。若这 1–2 个任务可检索候选数少于预算、没有有效业务目标或合法决策对，明确报告无法验证新增梯度，不缩小真实 Smoke 预算来冒充正式条件。MacBook 上当前 Python 缺少 PyTorch，相关测试无法在该环境收集；Python 编译和 shell 语法检查已通过。服务器使用原有项目 Python 环境，一次执行下列目标学习、目标决策、协议和 dev 反事实评估测试；不重装依赖或重复运行多轮试验：
+上面的路径变量须由实际产物填入；Scope Budget 保持正式 128，candidate_limit=256。若这 1–2 个任务可检索候选数少于预算、没有有效业务目标或合法决策对，明确报告无法验证新增梯度，不缩小真实 Smoke 预算来冒充正式条件。测试证据须对应实际 Git SHA 和解释器；历史默认 Python 缺少 PyTorch 的记录不代表其他现有环境。服务器使用原有项目 Python 环境，一次执行下列目标学习、目标决策、协议和 dev 反事实评估测试；不重装依赖或重复运行多轮试验：
 
 ```bash
 "$REPAIRSCOPE_PYTHON" -m pytest -q \

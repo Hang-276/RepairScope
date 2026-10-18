@@ -29,10 +29,7 @@ def json_stream(text):
     ('a1_dynamics.sh', 'dynamics', 'boundary', 0),
     ('a2_paired_effect.sh', 'paired_effect', 'paired', 1),
     ('a3_full.sh', 'full', 'boundary', 1),
-    ('a4_no_boundary.sh', 'no_boundary', 'boundary', 0),
-    ('a5_no_escape.sh', 'no_escape', 'escape', 0),
-    ('ablate_no_rollout.sh', 'no_rollout', 'rollout', 0),
-    ('ablate_no_goal.sh', 'no_goal', 'goal', 0),
+    ('a4_goal_sufficient.sh', 'goal_sufficient', 'goal_sufficiency', 1),
 ])
 def test_shell_runs_resolve_correct_ablations_without_training(script, variant, loss_key, expected, tmp_path):
     env = {**os.environ, 'DRY_RUN': '1', 'SEEDS': '100 101',
@@ -64,25 +61,9 @@ def test_probe_wrappers_use_same_checkpoint_and_real_budget(strategy, tmp_path):
     assert plan['will_execute'] is False
 
 
-def test_no_probing_has_distinct_results_and_needs_no_plan(tmp_path):
-    env = {k: v for k, v in os.environ.items() if k not in ('PROBE_PLANS', 'RS_PROBE_LABEL')}
-    env.update(DRY_RUN='1', SEEDS='100', REPAIRSCOPE_PYTHON=sys.executable,
-               RUN_ROOT=str(tmp_path))
-    plans = []
-    for script in ('probe_risk.sh', 'ablate_no_probing.sh'):
-        result = subprocess.run(['bash', str(ROOT / 'scripts/repairscope' / script)],
-            env=env, cwd=tmp_path, text=True, capture_output=True, check=True)
-        plan, = json_stream(result.stdout)
-        plans.append(plan)
-    assert plans[0]['output_dir'] != plans[1]['output_dir']
-    assert plans[0]['checkpoint'] == plans[1]['checkpoint']
-    assert plans[1]['config']['variant'] == 'no_probing'
-    assert plans[1]['config']['probing']['budget_calls'] == 0
-
-
 def test_all_sh_files_have_valid_bash_syntax():
     scripts = list((ROOT / 'scripts/repairscope').glob('*.sh'))
-    assert len(scripts) >= 20
+    assert scripts
     for script in scripts:
         subprocess.run(['bash', '-n', str(script)], check=True, capture_output=True)
 

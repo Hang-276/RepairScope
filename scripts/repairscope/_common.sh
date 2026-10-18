@@ -9,9 +9,9 @@ elif [[ -x "$RS_ROOT/.venv/bin/python" ]]; then
 else
   RS_PYTHON=python3
 fi
-RS_RUN_ROOT="${RUN_ROOT:-$RS_ROOT/runs/repairscope}"
+RS_RUN_ROOT="${RUN_ROOT:-$RS_ROOT/runs/repairscope_v2}"
 RS_CONFIG="${CONFIG:-$RS_ROOT/configs/repairscope/base.yaml}"
-read -r -a RS_SEEDS <<< "${SEEDS:-100 101 102}"
+read -r -a RS_SEEDS <<< "${SEEDS:-100}"
 RS_DRY_ARGS=()
 if [[ "${DRY_RUN:-0}" == 1 ]]; then RS_DRY_ARGS+=(--dry-run); fi
 RS_TASK_ARGS=()
@@ -65,11 +65,11 @@ rs_probe() {
   if [[ -n "${TRAIN_DATA:-}" ]]; then rs_probe_data_args=(--set "data.train=$TRAIN_DATA"); fi
   for rs_seed in "${RS_SEEDS[@]}"; do
     rs_dir="$RS_RUN_ROOT/$rs_label/seed_$rs_seed"
-    rs_checkpoint="${CHECKPOINT:-$RS_RUN_ROOT/a3_full/seed_$rs_seed/training/checkpoint.pt}"
+    rs_checkpoint="${CHECKPOINT:-$RS_RUN_ROOT/a4_goal_sufficient/seed_$rs_seed/training/checkpoint.pt}"
     rs_probe_calibration_args=()
     rs_calibration="${CALIBRATION_FILE:-}"
-    if [[ -z "$rs_calibration" && -z "${CHECKPOINT:-}" && -f "$RS_RUN_ROOT/a3_full/seed_$rs_seed/calibration/calibration.json" ]]; then
-      rs_calibration="$RS_RUN_ROOT/a3_full/seed_$rs_seed/calibration/calibration.json"
+    if [[ -z "$rs_calibration" && -z "${CHECKPOINT:-}" && -f "$RS_RUN_ROOT/a4_goal_sufficient/seed_$rs_seed/calibration/calibration.json" ]]; then
+      rs_calibration="$RS_RUN_ROOT/a4_goal_sufficient/seed_$rs_seed/calibration/calibration.json"
     fi
     if [[ -n "$rs_calibration" ]]; then
       rs_probe_calibration_args=(--set "controller.calibration_file=$rs_calibration")

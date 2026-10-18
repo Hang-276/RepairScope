@@ -2,7 +2,15 @@
   "repository": "https://github.com/kyle8581/WMA-Agents",
   "commit": "dd894640204895b52f050c66cc0b58f08e00f9b8",
   "branch": "main",
-  "extension": "repairscope",
   "retained_workflow": "frozen candidate Actor -> action-conditioned predictor -> value ranking -> actual execution",
-  "appworld_revision": "42b5bcf3cd334fee33f0c37c02070a9f5807add5"
+  "appworld_revision": "42b5bcf3cd334fee33f0c37c02070a9f5807add5",
+  "project": "RepairScope v2 - Goal-Sufficient Dynamic Scope Learning",
+  "repository_role": "historical source attribution, not a runtime checkout dependency",
+  "retained_component": "repairscope/candidates.py",
+  "removed_components": [
+    "original browser agent",
+    "WebArena environment and harness",
+    "Mind2Web experiments",
+    "upstream sample datasets and prompts"
+  ]
 }

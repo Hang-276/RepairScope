@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .actor import normalize_action, noop_action, public_goals, public_history, public_state
-from agent.wma_core import predict_and_rank
+from .candidates import predict_and_rank
 
 
 class BudgetExceeded(RuntimeError):

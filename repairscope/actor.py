@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from agent.wma_core import aggregate_candidates
+from .candidates import aggregate_candidates
 
 
 def public_state(state: dict) -> dict:

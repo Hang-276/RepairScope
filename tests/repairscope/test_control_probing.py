@@ -1,7 +1,5 @@
 import copy
-import importlib.util
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -12,7 +10,7 @@ from repairscope.fixtures import FixtureEnv, fixture_goals, fixture_records, fix
 from repairscope.metrics import calibration, compute_metrics, official_metrics
 from repairscope.evaluation import evaluate_run
 from repairscope.probing import ExperienceReplay, _branch_records, _load_plans, _prepare_plans, candidate_statistics, plan_cost, run_probing, selection_probabilities
-from agent.wma_core import aggregate_candidates, predict_and_rank
+from repairscope.candidates import aggregate_candidates, predict_and_rank
 
 
 def altered(state, key, value):
@@ -162,24 +160,7 @@ def test_mc_dropout_hypotheses_drive_probe_disagreement():
     assert stats["D"] == 1 and stats["R"] > 0
 
 
-def test_wma_adapter_reuses_native_prompt_policy_and_parser_without_browser_import():
-    module_path = Path(__file__).resolve().parents[2] / "agent" / "repairscope_agent.py"
-    spec = importlib.util.spec_from_file_location("repairscope_wma_bridge_test", module_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    seen = []
-    prompt = SimpleNamespace(invoke=lambda values: seen.append(values) or values)
-    policy = SimpleNamespace(generate=lambda _: SimpleNamespace(generations=[[SimpleNamespace(text="A"), SimpleNamespace(text="B"), SimpleNamespace(text="A")]]))
-    wma = SimpleNamespace(action_prediction_template={"intro": "native"}, generate_prompt=lambda template: prompt,
-                          map_url_to_real=lambda url: url, policy_llm=policy, extract_action=lambda text: text)
-    adapter = module.WMACandidateAdapter(wma)
-    candidates = adapter.generate_native([{"observation": {"text": "legal public browser state"}, "url": "http://example.test"}], "goal", {"action_history": []}, 2)
-    assert [a["wma_action"] for a in candidates] == ["A", "B"]
-    assert candidates[0]["prob"] == pytest.approx(2/3)
-    assert seen[0]["objective"] == "goal"
-
-
-def test_shared_wma_core_preserves_frequency_topk_and_first_seen_ties():
+def test_candidates_preserve_frequency_topk_and_first_seen_ties():
     selected = aggregate_candidates(["B", "A", "A", "B", "C"], count=2)
     assert [r["action"] for r in selected] == ["B", "A"]
     assert [r["prob"] for r in selected] == [.5, .5]

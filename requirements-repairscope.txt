@@ -1,4 +1,2 @@
-# Lean extension dependencies; upstream WebArena requirements remain separate.
-torch>=2.5,<2.11
-numpy>=1.26,<3
-PyYAML>=6,<7
+# Compatibility entry point; use requirements.txt or pip install -e .
+-r requirements.txt

@@ -1,122 +1,176 @@
-# RepairScope
+# RepairScope v2
 
-**当前版本：RepairScope v2 — Goal-Sufficient Dynamic Scope Learning。** 在固定字段预算下，使用真实反事实的目标决策监督学习 Scope。完整方法和 Eval 见 [v2 Proposal](docs/RepairScope_v2_Proposal.md)，服务器任务见 [v2 Claude 提示词](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md)。主入口为 `scripts/repairscope/run_goal_sufficient_main.sh`；下方旧方法说明和脚本保留用于 v1.1 对照，不启动旧版仅 A1/A3 流程。
+**Goal-Sufficient Dynamic Scope Learning for Reliable Long-Horizon Agents**
 
-**面向目标保护的动态作用范围学习：结合 JEPA 的预测思想与结构化时序 Transformer。**
+在固定字段预算下，学习足以支持目标保护决策的动作作用范围。
 
-本仓库在 [WMA 官方实现](https://github.com/kyle8581/WMA-Agents) 上实现 RepairScope，用于 AppWorld。我们学习动作会影响哪些字段、影响如何随条件变化，以及当前预测范围是否遗漏副作用；再用同一个预测器支持执行前的动作选择与执行后的修复。研究假设由主实验检验，目前不宣称已有真实任务提点。
+RepairScope v2 面向长程工具 Agent：一次动作既可能推进当前任务，也可能破坏已经满足的业务目标。方法使用同一合法前缀上的真实反事实动作结果，让 Scope 选择器学习“哪些信息会改变目标保护决策”，并用同一个 Predictor 支持执行前选择、合法检查与执行后修复。
 
-**服务器 Claude 先阅读 [CLAUDE.md](CLAUDE.md) 和 [当前交接任务](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md)。本次 v2 改造已获用户授权；其它机制变更仍需按交接边界处理。**
+`main` 是新版方法的入口。普通 clone 即获得当前代码，无需切换功能分支。
 
-## 文档入口
-
-| 文档 | 内容 |
+| 文档 | 用途 |
 | --- | --- |
-| [v2 Proposal + Evaluation](docs/RepairScope_v2_Proposal.md) | 当前完整研究设计、损失、指标和跨环境计划 |
-| [v2 服务器 Claude 交接](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md) | 当前执行任务、现有服务器修复与输入缺口 |
-| [研究 proposal](docs/REPAIRSCOPE_PROPOSAL.md) | 完整问题、架构、损失、实验计划与文献定位 |
-| [方法与实现](docs/REPAIRSCOPE.md) | 实际复用 WMA 的范围、默认配置、消融脚本索引 |
-| [实现对应表](docs/IMPLEMENTATION_COVERAGE.md) | 设计到代码的对应关系及实现边界 |
-| [服务器运行指南](docs/SERVER_RUNBOOK.md) | 安装、真实数据配置、采集、训练与主实验命令 |
-| [服务器 Claude 交接](docs/CLAUDE_SERVER_HANDOFF.md) | 可直接复制的任务提示词与审批规则 |
-| [本地验证](docs/LOCAL_VERIFICATION.md) | CPU synthetic 工程证据与尚未验证的真实环境部分 |
+| [完整 Proposal 与 Evaluation Plan](docs/RepairScope_v2_Proposal.md) | 动机、相关工作、数学定义、损失、信息边界、实验与指标 |
+| [服务器 Claude 执行任务](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md) | 复用现有环境、同步代码、必要真实 Smoke、共享数据和正式实验 |
+| [协作与执行约定](CLAUDE.md) | 仓库操作、实验与数据边界 |
+| [代码来源记录](docs/UPSTREAM.json) | 复用代码的来源追溯 |
 
-## 核心 idea
-
-普通动作效果预测回答“执行后变成什么”，RepairScope 还要回答“当前条件下影响会传播到哪里，哪些已满足目标可能受损，已有预测范围何时不可信”。例如，修改订单配送方式可能在普通条件下仅改变配送字段，却在某个合法业务条件下额外改变付款状态。我们希望在固定预测与执行预算内学会这种条件化作用边界，并在不确定时选择合法检查或更安全的候选。
-
-候选贡献是**预算约束下的条件化作用边界学习与修正闭环**。JEPA、Transformer、反事实与在线更新是方法基础；它们本身不是新颖性或有效性保证。
-
-## 架构与数据流
+## 方法
 
 ```mermaid
 flowchart TD
-    O[公开观测 / Schema / 既有历史] --> S[字段 token 与公开实体关系]
-    A[冻结 Actor：WMA 候选生成与聚合] --> D[动作条件 Dynamic Scope]
-    S --> D
-    D --> P[单一 B-lite Predictor：关系注意力与字段级因果时序注意力]
-    P --> H[Scope / 类型化 Patch / Escape / Goal 四态]
-    H --> C[共享候选重排与目标保护]
-    C --> X[正常执行 / 合法只读检查 / 修复或不修复]
-    X --> R[训练侧隔离审计与真实成本]
-    R --> Q[训练任务上的合法反事实采样]
-    Q --> U[经验回放：仅更新 Predictor]
-    U --> P
+    P[公开观测、Schema、历史与目标] --> S[Goal-conditioned Scope]
+    A[Frozen Actor 候选动作] --> S
+    S --> M[B-lite Predictor：关系交互与字段时序]
+    M --> O[类型化 Patch、Goal、State / Goal Escape]
+    O --> C[候选评分、合法检查、执行与修复]
+    C --> E[允许阶段的隔离审计与合法反事实]
+    E --> D[充分信息与受限 Scope 的动作偏好]
+    D --> L[Goal-Sufficiency Loss]
+    L -. 预算保持的直通梯度 .-> S
 ```
 
-1. **状态表示。** 按应用、实体、字段组织 token，保留类型、已知性、更新时间、公开关系与历史。数值归一化，类别/布尔使用离散表示，ID 与文本优先使用引用/复制槽；不能合法观察的值保持 unknown。
-2. **Dynamic Scope。** 从动作参数、公开关系与合法检索构造候选，结合学习作用分数、目标重要性、不确定性和越界风险，在固定预算内选择预测范围。静态关系是先验，允许跨静态关系与少量随机覆盖。
-3. **单一 B-lite。** 当前动作参与字段关系交互，再通过字段级因果时序注意力读取既有历史。预防与修复共享同一组 Predictor 参数。首轮固定维度384、6头、关系块4层、时序块2层、历史8步、候选256、Scope128、rollout H=4。
-4. **预测输出。** 类型化 Patch 包含保持/修改/新增/删除及字段值、引用或复制分布；Scope 头预测作用范围，Escape 头预测声明审计域内的遗漏风险，Goal 辅助头保留 00/01/10/11 四种目标转移。
-5. **决策。** 冻结 Actor 产生4个候选，以预计进展、受保护目标损害、风险和成本重排。必要时合法只读检查；执行后修复候选包含继续执行/不修复，识别多余修复。
+- **Goal-Sufficiency。** 在同前缀、同条件的 action/reference 两候选组中，用充分离线效用作为教师。受限 Scope 内采用真实离线补丁、范围外保留前态，构造决策蒸馏代理；监督直接进入实际 Scope gate，不是只训练独立辅助头。
+- **固定预算选择。** 硬前向采用 Top-k 和预算内覆盖预留，反向采用固定质量松弛的直通估计。它提供有偏训练信号，不证明离散最优性或最小真实因果范围。
+- **共享预测器。** 保留动作条件关系块、字段级时序注意力、类型化 State Patch 和多步递推。Actor 参数冻结，预防与修复使用同一 Predictor。
+- **互补监督。** Boundary 学条件化作用支持；State Escape 学一般遗漏变化；Goal-Relevant Escape 学有可靠证据的目标保护遗漏。一般字段变化不自动视为目标损害。
+- **轻量探索。** 使用同模型 MC 假设的字段与候选决策分歧、目标风险及真实分支成本选择训练证据，保留随机探索。没有额外 Explorer 模型、RL、RSI 或 Memory Agent。
 
-## 训练与条件化边界
+推理只使用公开当前状态、Schema、目标、当前动作和既有历史。未来结果与隐藏审计仅作允许阶段的离线标签；测试期不更新 Predictor、不执行反事实搜索，也不使用官方 checker 帮助动作选择。未知标签保留 unknown。
 
-基础训练由单步 Scope/Patch/Goal 监督与自由递推监督组成。Rollout 从真实起点出发，之后仅输入模型预测状态与历史，报告 H=1/2/4 硬递推结果。
+## 证据状态
 
-同一可比前缀下，合法执行参考动作与目标动作；需要研究条件依赖时，在两个可执行条件下组成四格。Boundary 比较两个条件下的“目标动作相对参考动作的作用支持变化”，不把条件本身的状态变化当成动作效果。Escape 标签检查实际变化是否落在执行前保存的范围外；部分审计且没有正例时不能填0。
+本仓库提供方法实现、单元测试、合成工程 fixture 和实验协议。**这些不构成真实 AppWorld 方法效果、RTX 4090 性能或跨环境泛化证据。** 当前没有可据此宣称的任务提点结果。
 
-$$
-\mathcal L = \mathcal L_{scope}+\mathcal L_{patch}+\mathcal L_{goal}
-+\lambda_1\mathcal L_{roll}+\lambda_2\mathcal L_{boundary}+\lambda_3\mathcal L_{escape}.
-$$
+真实训练首先需要正确绑定的公开业务目标、合法可比较反事实分支，以及固定预算下可学习的范围竞争。训练入口会拒绝没有可训练目标决策组的 Goal-Sufficiency 训练；完整数据预审计也不能替代实际 batch 中新增损失、Scope 梯度和参数更新的验收。
 
-首轮各权重为1，AdamW、学习率 `3e-4`、weight decay `0.01`、micro-batch4、累积4、BF16、梯度裁剪1.0、30 epochs；前10%更新仅 Step+Rollout 预热，不另设有效性筛选阶段。JEPA 在这里体现为预测式学习思想；首版直接监督结构化状态，**不另设 EMA target encoder**。
+`smoke` 使用 CPU synthetic fixture，只检查工程链路。真实 AppWorld/GPU Smoke 与科学评估按服务器执行任务进行；通用 `complete` 或答案非空不代表业务目标已经验证。
 
-软分布/数值/复制引用用于可微递推。硬检索、Top-k、JSON 解码与无绑定新实体或字符串不宣称可微；梯度边界写入模型 manifest。
-
-## 风险引导探索
-
-在训练任务的同一合法候选实验池中，按下式选择真实执行证据，并保留 `epsilon=0.1` 的随机覆盖：
-
-$$
-V(q)=\frac{U(q)D(q)R(q)}{C(q)}.
-$$
-
-U 是范围不确定性与 Escape 风险，D 是共享模型 MC 假设对候选实验结果的分歧，R 是预计受保护目标损害，C 是完整分支与续跑成本。它是预算调度启发式，不是信息增益保证。记录选择概率、失败调用、完整前缀、条件、合法检索与真实成本；周期回放只更新 Predictor。冻结查询任务的结果不回流训练。
-
-## 当前只运行一个实验：A1 与 A3 的主对照
-
-当前阶段仅比较 **A1 普通预测器 vs A3 完整 RepairScope，固定种子100**。两组共用一次采集的自然轨迹和合法反事实数据、同一评测集、Actor、模型容量、训练计划与执行预算。核心问题是完整方法是否改善“任务完成率—受保护目标损害”的权衡。H=1/2/4、一次 dev 阈值选择、任务指标与成本都在这一组主对照内完成。
-
-正式 eval 使用 **AppWorld 官方 `test_normal` 全集**，两组使用相同官方任务列表；训练仅用 `train`，`dev` 仅用于 H=1/2/4 预测指标与一次阈值选择。本阶段不运行 `test_challenge`，不以本地 synthetic fixture 作为正式 eval。
-
-唯一执行入口：`bash scripts/repairscope/run_primary_experiment.sh`。完成两组结果汇总后停止，等待用户决定后续。暂不运行 A0/A2/A4/A5、其它种子、主 B 或任何消融。不做反复 pilot、额外可行性 gate、超参网格搜索，或因小样本无提点而修改 idea。
-
-以下为保留的完整研究计划与脚本，**本阶段不执行**：
-
-| 实验 | 固定比较 | 入口 |
-| --- | --- | --- |
-| 主 A，相同数据 | A0 冻结 Actor；A1 dynamics；A2 成对 effect/support；A3 完整方法；A4 去 Boundary；A5 去 Escape | `scripts/repairscope/run_main_a.sh` |
-| 主 B，相同真实执行预算 | 相同 A3 起点、损失与候选池：随机、不确定性、新颖性/可学习性、风险引导 | `scripts/repairscope/run_main_b.sh` |
-| 模型/损失消融 | 静态 Scope、去学习边、去时序、统一 Transformer、去 rollout、去 Goal | `scripts/repairscope/run_all_ablations.sh` |
-| 不增加探索 | 相同起点、零探索预算与冻结查询 | `scripts/repairscope/ablate_no_probing.sh` |
-
-完整计划默认种子 `100 101 102`；当前唯一主对照入口固定为 `100`。各独立 `.sh` 见[完整索引](docs/REPAIRSCOPE.md)。测试期不更新、不进行反事实分支搜索。dev 仅用于主预测指标和一次阈值选择，阈值绑定 checkpoint 并冻结。
-
-报告原生 TGC/SGC、受保护目标损害、修复恢复与新增损害、Scope 预算覆盖、Escape 校准、类型化误差、H=1/2/4 递推、任务组置信区间及成本。明确这是单种子主对照，不能声称跨种子稳定性；无提点也如实报告，不自动追加实验。
-
-## 开始运行
+## 安装或复用环境
 
 ```bash
 git clone https://github.com/Hang-276/RepairScope.git
 cd RepairScope
-# 先阅读 CLAUDE.md 和 docs/SERVER_RUNBOOK.md
-bash scripts/repairscope/setup_server.sh
 ```
 
-安装脚本面向 Linux/Python 3.11。需要配置 AppWorld 数据、冻结 Actor 服务、公开观测/目标映射和合法训练分支计划。它们是真实环境的数据对齐输入，仓库的 fixture 只是格式示例，不能直接作为正式数据。完整准备与主实验命令见[服务器指南](docs/SERVER_RUNBOOK.md)。
+需要 Python 3.11 或更高版本，以及 PyTorch、NumPy、PyYAML。正式 AppWorld 实验使用 Linux；目标设备为单卡 RTX 4090，实际资源据运行记录报告。
 
-## 机制冻结与 bug 处理
+### 已有服务器环境
 
-- **禁止自行修改方法机制。** 包括架构、损失及标签语义、Scope/Boundary/Escape、采样公式、目标保护/修复决策语义、数据隔离、指标定义、对照和预算公平性。发现实现与 proposal 不一致也不能自行“修正机制”；应停止受影响实验，提交证据、拟议修复和影响，等待用户明确审批。不确定时按机制问题处理。
-- **工程 bug 可自主修复。** 如路径、环境安装、序列化、日志、接口兼容，以及能够证明不改变方法语义的设备/运行错误。修复后只做必要的最小回归，再接续原实验。需要改变 BF16、有效 batch、训练计划或预算等固定条件时先审批。
-- **修复日志必须在仓库外。** 默认使用仓库父目录下 `RepairScope-server-notes/BUGFIX_LOG.md`，启动时确认解析后的路径不位于工作树内。每次记录 UTC 时间、commit、症状、根因、为何不改变机制、diff/hash、验证和已耗预算；不得将日志或凭据加入仓库。机制阻塞同样在该日志记录并等待审批。
+优先复用现有 Python 环境、AppWorld 数据、冻结 Actor 服务、权重和缓存。将 `REPAIRSCOPE_PYTHON` 设为已有环境的 Python 绝对路径，并确保导入当前 checkout：
 
-## 复用 WMA 与验证边界
+```bash
+export REPAIRSCOPE_PYTHON=/absolute/path/to/existing/.venv/bin/python
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+"$REPAIRSCOPE_PYTHON" -c 'import repairscope; print(repairscope.__file__)'
+"$REPAIRSCOPE_PYTHON" -m repairscope --help
+```
 
-这份代码直接基于 WMA commit `dd894640204895b52f050c66cc0b58f08e00f9b8`。候选生成、频数聚合、Top-k、概率归一化和稳定重排抽到 `agent/wma_core.py`，原 `agent/world_model_agent.py` 与 RepairScope 均调用；桥接器保留 WMA 原策略/提示词接口。新方法没有从零重写这条工作流。网页 HTML 状态预测和 WebArena Docker 从默认链路移除，原文件保留作上游参照。
+输出模块路径应位于当前仓库。原环境正常时不重新安装、下载模型或覆盖数据。具体服务器路径和同步步骤见[服务器执行任务](docs/CLAUDE_GOAL_SUFFICIENT_EXPERIMENT.md)。
 
-上游说明保存在 [WMA README](docs/upstream/WMA_README.md)，原始图片链接应在[上游页面](https://github.com/kyle8581/WMA-Agents/tree/dd894640204895b52f050c66cc0b58f08e00f9b8)查看；版本来源见 [UPSTREAM.json](docs/UPSTREAM.json)。WMA 论文：Chae et al., *Web Agents with World Models*, ICLR 2025。
+### 新建本地开发环境
 
-本地 **84 项工程测试通过**；仅 Mac CPU synthetic，已跑通5次优化更新、checkpoint、H4递推、控制器、合法四格和回放闭环。真实 AppWorld、CUDA/BF16、显存和实际提点尚未测量。合成结果不作为科学效果证据。
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[test]'
+python -m repairscope --help
+```
+
+全新 Linux 实验服务器可使用 `bash scripts/repairscope/setup_server.sh` 安装项目和固定 AppWorld 依赖。该脚本创建仓库内 `.venv`；已有环境应走复用路径。AppWorld 数据、Actor 服务和公开观测/目标映射需单独配置，安装依赖不代表真实实验已就绪。
+
+## 快速开始
+
+### 本地工程检查
+
+```bash
+python -m pytest -q tests/repairscope
+python -m repairscope smoke \
+  --config configs/repairscope/goal_sufficient.yaml \
+  --output-dir runs/v2-engineering-smoke
+```
+
+使用未占用的输出目录。合成 Smoke 不访问真实 AppWorld 或 Actor 服务，不用于筛选方法效果，也不替代实际 Goal-Sufficiency 梯度验收。
+
+不执行环境或训练的配置预览：
+
+```bash
+python -m repairscope train \
+  --config configs/repairscope/goal_sufficient.yaml --dry-run
+```
+
+### 真实实验所需输入
+
+在服务器配置中绑定真实绝对路径，至少包含：
+
+| 输入 | 配置或来源 |
+| --- | --- |
+| AppWorld 数据与版本 | `environment.root` 或 `APPWORLD_ROOT`；固定 release/commit 与官方清单 |
+| Frozen Actor | `actor` 配置及已有服务；凭据通过安全环境变量提供 |
+| 公开观测映射 | `environment.observation_map` |
+| 公开业务目标与实体绑定 | `data.goal_map`；由公开指令、API 与合法返回支撑 |
+| 共享训练数据 | 官方 train 自然轨迹和合法反事实 JSONL |
+| 冻结 dev 数据 | dev 自然轨迹及显式 evaluation-only 候选组 |
+| 反事实计划 | 完整合法 prefix、action/reference、条件操作及只读证明 |
+
+配置文件的 `base` 必须指向当前仓库的配置，不复制旧源码来解决路径问题。fixture 中的订单示例只说明格式，不能用作真实 benchmark 数据。
+
+### 正式入口
+
+主 A 入口是 `scripts/repairscope/run_goal_sufficient_main.sh`：共享数据只采集一次，随后执行 Frozen Actor、预测/效果学习对照、完整 v2，以及去 Goal-Sufficiency、去 Boundary、去 Goal Escape 和静态范围对照。基线用于检验新版方法，不构成另一套默认主流程。
+
+先将下列路径替换为已冻结的真实产物：
+
+```bash
+export REPAIRSCOPE_PYTHON=/absolute/path/to/existing/.venv/bin/python
+export CONFIG=/absolute/path/to/server-v2.yaml
+export TRAIN_DATA=/absolute/path/to/shared-train.jsonl
+export EVAL_DATA=/absolute/path/to/frozen-dev.jsonl
+export RUN_ROOT="$PWD/runs/repairscope_v2_seed100"
+
+SEEDS=100 DRY_RUN=1 bash scripts/repairscope/run_goal_sufficient_main.sh
+```
+
+`RUN_ROOT` 必须是未占用的新目录，名称包含 `v2` 或 `goal_sufficient`。完成必要真实 Smoke、输入冻结和费用核算后，用同一配置去掉 `DRY_RUN=1` 执行。首轮固定 seed100、30 epochs、H4、Scope128、候选字段256；详细训练与控制预算以完整 Proposal 和服务器任务为准。
+
+主 B 使用 `scripts/repairscope/run_goal_sufficient_b.sh`，从同一完整 v2 checkpoint 和同一 train-only 计划池比较四种采样策略。每策略 2000、合计 8000 只约束探索采集 ledger；冻结查询另外计费，须事先纳入已批准总预算。查询或全局上限未明确时不启动 B，不自动追加训练、Pilot 或调参。
+
+## 命令与产物
+
+所有入口支持 `python -m repairscope ...`；安装后也可使用 `repairscope ...`。
+
+| 命令 | 用途 |
+| --- | --- |
+| `doctor` | 核对运行依赖与真实环境配置；不是 benchmark 验收 |
+| `collect` | 收集 train/dev 自然轨迹及允许的离线审计 |
+| `counterfactual` | 按冻结合法计划收集分支；默认 train |
+| `train` | 拟合 Predictor，保存 checkpoint、配置与监督审计；支持同协议精确续训 |
+| `predict-eval` | 固定记录上的 H1/H2/H4 预测、目标范围指标和两候选 Regret |
+| `calibrate` | 每个 checkpoint 的一次 dev 阈值选择 |
+| `evaluate` | 冻结在线系统与独立 AppWorld 原生评分 |
+| `probe` | train-only 预算化采集及 Predictor 更新，查询结果不回流 |
+| `validate-data` / `aggregate` | 数据来源/划分检查与运行结果汇总 |
+
+dev 反事实必须显式开启评估模式，且计划中 `split`、`source_split` 都为 `dev`：
+
+```bash
+"$REPAIRSCOPE_PYTHON" -m repairscope counterfactual \
+  --config "$CONFIG" --plans "$DEV_CF_PLANS" \
+  --set collection.split=dev \
+  --set collection.counterfactual_evaluation_only=true \
+  --output-dir "$DEV_CF_OUTPUT"
+```
+
+该路径保存冻结计划哈希，输出 `frozen_query=true`、`used_for_training=false`；禁止 test/challenge 分支采集。dev 记录不进入训练集构建器、探索或 replay。
+
+关键产物包括配置与来源 Manifest、`goal_supervision_audit.json`、`metrics.jsonl`、`checkpoint.pt`、预测 `predictions.jsonl`、校准收据、逐任务系统结果和费用记录。数据、模型权重、密钥、环境与运行目录不提交到源码仓库。
+
+## 指标与实现边界
+
+正式系统报告原生 TGC/SGC、可判定目标退化、修复恢复与新增损害、实际动作/检查/Actor/Predictor 成本。原生 checker 覆盖不足时官方指标为 N/A；修复的两项边际比例不等于完整修复事件成功率。
+
+机制指标包括 Goal-Relevant Recall@B、State/Goal Escape，以及同合法 action/reference 组上的实际预测评分 Decision Regret。Regret 包含 Predictor 与部署评分的共同影响，不是 Scope 单独因果效应；oracle-patch Scope 诊断单独报告。未知不作负例，并列原始分子、分母、Mask 与覆盖率。
+
+显式设置 `evaluation.scope_budgets` 可对同一 checkpoint、固定候选上限的 dev 记录计算离线字段预算曲线。它不产生新的环境执行，也不是完整系统的任务成功—检查成本前沿。Scope 当前没有完整压缩 dense 计算，字段预算不能直接换算为延迟或显存收益。
+
+首轮单 seed 不能证明跨训练种子稳定性。AppWorld 是唯一首轮主环境；WorkArena、AndroidWorld、WindowsWorld、OSWorld、LegacyWorld、WebArena 等仅属于后续准入候选，仓库不宣称已完成其适配或跨环境结果。
