@@ -70,6 +70,11 @@ def snapshot_world(world: Any, ignore: list[str] | None = None) -> dict[str, Any
         connection = models.SQLModel.db.connection
         tables = connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()
         for (table,) in tables:
+            # SQLite FTS shadow tables are internal indexes, not semantic state.
+            # Auditing them is both meaningless and prohibitively expensive on
+            # the real AppWorld databases.
+            if '_fts' in table:
+                continue
             quoted = '"' + table.replace('"', '""') + '"'
             columns = connection.execute('PRAGMA table_info(' + quoted + ')').fetchall()
             column_names = [column[1] for column in columns]

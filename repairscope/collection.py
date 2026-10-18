@@ -103,7 +103,8 @@ def collect(config: dict[str, Any], output_dir: str | Path, actor: Any = None, p
         try:
             state = env.reset()
             goals = _goals(config, env)
-            public_context = json.dumps({k: env.metadata[k] for k in ('instruction', 'supervisor', 'allowed_apps', 'api_docs') if k in env.metadata}, ensure_ascii=False)
+            from .actor import actor_instruction
+            public_context = actor_instruction(env.metadata)
             actions = plans.get(task_id, plans.get('actions')) if isinstance(plans, dict) else plans
             for step in range(max_steps):
                 if actions is not None:

@@ -47,6 +47,26 @@ def public_history(history: list[dict], limit: int = 8) -> list[dict]:
 def normalize_action(action: Any) -> dict:
     if isinstance(action, str):
         action = {"name": "code", "arguments": {}, "code": action}
+    if isinstance(action, dict):
+        action = copy.deepcopy(action)
+        # Served models sometimes use a descriptive key for the executable block.
+        if action.get("code") is None:
+            for alias in ("executable_code", "executable", "program"):
+                if isinstance(action.get(alias), str) and action[alias].strip():
+                    action["code"] = action[alias]
+                    break
+        if not isinstance(action.get("name"), str) or not action.get("name"):
+            if action.get("code"):
+                action["name"] = "code"
+            else:
+                raise ValueError("Action must have a string name")
+        # A qualitative cost is a model formatting slip, not an environment cost.
+        # Actual execution cost is settled from the environment response.
+        if isinstance(action.get("cost"), str):
+            try:
+                action["cost"] = float(action["cost"])
+            except ValueError:
+                action["cost"] = 1.0
     if not isinstance(action, dict) or not isinstance(action.get("name"), str):
         raise ValueError("Action must have a string name")
     arguments = action.get("arguments", {})
@@ -68,6 +88,55 @@ def noop_action() -> dict:
     return {"name": "noop", "arguments": {}, "cost": 1.0}
 
 
+ACTION_FORMAT_GUIDE = (
+    'ACTION FORMAT (mandatory): return {"actions": [...]} with each item exactly '
+    '{"name": "<app>.<api_name>", "arguments": {...}, "code": "<complete executable Python block or omitted>", "cost": 1}. '
+    'Use the exact endpoint names listed in public_apis. cost must be a number. '
+    'LEGAL CODE: code may call only apis.<app>.<api_name>(...). Never import or use requests, urllib, http, socket, '
+    'os, subprocess or any network/file access; never invent URLs or placeholder values. '
+    'Do not guess an API response shape in advance: execute one API, observe its returned value in the next state, then continue. '
+    'Unless the current state already contains app credentials, the first action should be '
+    'apis.supervisor.show_account_passwords(); it returns a list of {account_name, password}. '
+    'Then call the app login API with that account_name/email and password, and pass the returned access_token to later calls. '
+    'Example: {"actions":[{"name":"supervisor.show_account_passwords","arguments":{},'
+    '"code":"import json\\nprint(json.dumps(apis.supervisor.show_account_passwords()))","cost":1}]}'
+)
+
+
+def public_api_catalog(metadata: dict) -> list[str]:
+    """Compact public API catalog; response payloads remain runtime observations."""
+    rows = []
+    for app, apis in sorted((metadata.get("api_docs") or {}).items()):
+        if not isinstance(apis, dict):
+            continue
+        for name, doc in sorted(apis.items()):
+            if not isinstance(doc, dict):
+                continue
+            params = ", ".join(
+                f"{item.get('name')}:{item.get('type')}" + ("" if item.get("required") else "?")
+                for item in doc.get("parameters", []) if isinstance(item, dict))
+            rows.append(f"{app}.{name}({params}) - {doc.get('description', '')}")
+    return rows
+
+
+def actor_instruction(metadata: dict) -> str:
+    """Render public task context within the served model's context budget.
+
+    AppWorld's full api_docs include every response schema (hundreds of KB) and
+    cannot fit any candidate context. The catalog keeps the same public endpoint
+    names, descriptions, and parameters; actual responses arrive through legal
+    execution, so no information boundary is changed.
+    """
+    payload = {
+        "instruction": metadata.get("instruction", ""),
+        "supervisor": metadata.get("supervisor", {}),
+        "allowed_apps": metadata.get("allowed_apps", []),
+        "public_apis": public_api_catalog(metadata),
+        "action_format": ACTION_FORMAT_GUIDE,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
 class FrozenActor:
     """Fixed API policy or deterministic scripted policy with optional disk cache."""
 
@@ -82,6 +151,8 @@ class FrozenActor:
                 "repair": [{"name": "shop.pay_order", "arguments": {}}]})
         self.calls = 0
         self.last_cache_hit = False
+        self.parse_repairs = 0
+        self.rejected_candidates = 0
         self.cache: dict = {}
         self.cache_path = self.config.get("cache_path")
         if self.cache_path and Path(self.cache_path).exists():
@@ -165,7 +236,15 @@ class FrozenActor:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
         if not isinstance(raw, list):
             raise ValueError("Frozen Actor actions must be an array")
-        selected = aggregate_candidates(raw, parse=normalize_action, count=count,
+        parsed = []
+        for item in raw:
+            try:
+                parsed.append(normalize_action(item))
+            except (ValueError, TypeError):
+                # One malformed candidate must not discard the other legal
+                # proposals; the rejection is counted for the run receipt.
+                self.rejected_candidates += 1
+        selected = aggregate_candidates(parsed, parse=lambda action: action, count=count,
             key=lambda action: json.dumps({k: v for k, v in action.items() if k not in {"prob", "cost"}}, sort_keys=True))
         result = [{**item["action"], "prob": item["prob"]} for item in selected]
         return result or [noop_action()]

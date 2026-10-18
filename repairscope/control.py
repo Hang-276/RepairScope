@@ -209,10 +209,11 @@ class RepairController:
         metadata = getattr(env, "metadata", {})
         goals = public_goals(goals if goals is not None else metadata.get("goals", []))
         instruction = instruction or metadata.get("instruction", "")
-        context = {k: metadata[k] for k in ("supervisor", "api_docs") if k in metadata}
-        if context:
-            import json
-            instruction += "\nPublic environment context:\n" + json.dumps(context, ensure_ascii=False, default=str)
+        if metadata.get("api_docs"):
+            from .actor import actor_instruction
+            # Compact public catalog; the full per-response schemas overflow any
+            # candidate context and remain available through legal API queries.
+            instruction = actor_instruction(metadata)
         stop_reason, errors = "max_steps", []
         for step in range(int(self.config.get("max_steps", 30))):
             try:
