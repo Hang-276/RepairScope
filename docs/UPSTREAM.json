@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/kyle8581/WMA-Agents",
+  "commit": "dd894640204895b52f050c66cc0b58f08e00f9b8",
+  "branch": "main",
+  "extension": "repairscope",
+  "retained_workflow": "frozen candidate Actor -> action-conditioned predictor -> value ranking -> actual execution",
+  "appworld_revision": "42b5bcf3cd334fee33f0c37c02070a9f5807add5"
+}

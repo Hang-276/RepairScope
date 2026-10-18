@@ -1,0 +1,64 @@
+{
+    "shopping_admin": {
+        "What's the total number of items sold in the most recent {{k}} orders?": [
+            {
+                "k": "2"
+            }
+        ]
+    },
+    "shopping": {
+        "I have a lot of Nintendo Switch game cards now, help me find the best storage option to fit all {{num}} cards": [
+            {
+                "num": 11
+            }
+        ],
+        "How much I spend {{time}} on shopping at One Stop Market?": [
+            {
+                "time": "on 4/19/2023"
+            }
+        ],
+        "Who gave {{stars}} for phone cases from EYZUTAK": [
+            {
+                "stars": "4 or 5 stars"
+            }
+        ],
+        "Add a {{product}} to my wish list.": [
+            {
+                "product": "laundry detergent"
+            }
+        ],
+        "Rate my recent purchase of {{product}} with {{num_star}} stars, using my nickname {{nickname}}?": [
+            {
+                "product": "floor lamp",
+                "num_star": 5,
+                "nickname": "Emma Lopez"
+            }
+        ]
+    },
+    "map": {
+        "Pull up the description page of {{location}} on Map": [
+            {
+                "location": "Carnegie Music Hall"
+            }
+        ]
+    },
+    "reddit": {
+        "Re-post the image of {{content}} in this page to {{subreddit}} subreddit and note \"from /f/pics\"": [
+            {
+                "content": "Bald Eagle",
+                "subreddit": "earthporn"
+            }
+        ],
+        "Create a discussion post about \"{{topic}}\" in a relevant subreddit and ask users for their opinions with the simple prompt, \"your opinion\"": [
+            {
+                "topic": "the effectiveness of online learning"
+            }
+        ],
+        "Reply to {{position_description}} with my comment \"{{content_description}}\"": [
+            {
+                "position_description": "the post",
+                "content_description": "I am a big fan of the bookorg"
+            }
+        ]
+    }
+}

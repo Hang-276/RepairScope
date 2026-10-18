@@ -1,0 +1,19 @@
+{
+  "plans": [
+    {
+      "pair_id": "fixture-conditional-shipping-v1",
+      "task_id": "fixture-0",
+      "split": "train",
+      "group_id": "fixture-0",
+      "prefix": [],
+      "conditions": {
+        "c0": {"actions": [{"name":"shop.set_condition","arguments":{"condition":"standard"},"cost":1}], "query":{"name":"shop.read_order","arguments":{},"cost":1,"read_only":true},"expected_output":"standard"},
+        "c1": {"actions": [{"name":"shop.set_condition","arguments":{"condition":"fragile"},"cost":1}], "query":{"name":"shop.read_order","arguments":{},"cost":1,"read_only":true},"expected_output":"fragile"}
+      },
+      "action": {"name":"shop.set_shipping","arguments":{"shipping":"express"},"cost":1},
+      "reference": {"name":"shop.set_shipping_preserve_payment","arguments":{"shipping":"express"},"cost":1},
+      "scope": ["shop.Order[1].shipping"],
+      "evidence_origin":"synthetic"
+    }
+  ]
+}

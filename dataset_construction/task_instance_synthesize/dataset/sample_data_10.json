@@ -1,0 +1,364 @@
+[
+    {
+        "sites": [
+            "shopping_admin"
+        ],
+        "task_id": 128,
+        "require_login": true,
+        "storage_state": "./.auth/shopping_admin_state.json",
+        "start_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:7780/admin",
+        "geolocation": null,
+        "intent_template": "What's the total number of items sold in the most recent {{k}} orders?",
+        "instantiation_dict": {
+            "k": "2"
+        },
+        "intent": "What's the total number of items sold in the most recent 2 orders?",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "string_match"
+            ],
+            "reference_answers": {
+                "must_include": [
+                    "9"
+                ]
+            },
+            "reference_url": "",
+            "program_html": [],
+            "string_note": "",
+            "reference_answer_raw_annotation": "9"
+        },
+        "intent_template_id": 1002
+    },
+    {
+        "sites": [
+            "shopping"
+        ],
+        "task_id": 158,
+        "require_login": true,
+        "storage_state": "./.auth/shopping_state.json",
+        "start_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:7770",
+        "geolocation": null,
+        "intent_template": "I have a lot of Nintendo Switch game cards now, help me find the best storage option to fit all {{num}} cards",
+        "instantiation_dict": {
+            "num": 11
+        },
+        "intent": "I have a lot of Nintendo Switch game cards now, help me find the best storage option to fit all 11 cards",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "url_match"
+            ],
+            "reference_answers": null,
+            "reference_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:7770/heiying-game-card-case-for-nintendo-switch-switch-oled-game-card-or-micro-sd-memory-cards-portable-switch-game-memory-card-storage-with-24-game-card-slots-and-24-micro-sd-card-slots-black.html",
+            "program_html": [],
+            "url_note": "GOLD in PRED"
+        },
+        "intent_template_id": 171
+    },
+    {
+        "sites": [
+            "shopping"
+        ],
+        "task_id": 329,
+        "require_login": true,
+        "storage_state": "./.auth/shopping_state.json",
+        "start_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:7770",
+        "geolocation": null,
+        "intent_template": "How much I spend {{time}} on shopping at One Stop Market?",
+        "instantiation_dict": {
+            "time": "on 4/19/2023"
+        },
+        "intent": "How much I spend on 4/19/2023 on shopping at One Stop Market?",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "string_match"
+            ],
+            "reference_answers": {
+                "must_include": [
+                    "0"
+                ]
+            },
+            "reference_url": "",
+            "program_html": [],
+            "string_note": "",
+            "reference_answer_raw_annotation": "0"
+        },
+        "intent_template_id": 147
+    },
+    {
+        "sites": [
+            "map"
+        ],
+        "task_id": 369,
+        "require_login": true,
+        "storage_state": null,
+        "start_url": "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000/",
+        "geolocation": null,
+        "intent_template": "Pull up the description page of {{location}} on Map",
+        "instantiation_dict": {
+            "location": "Carnegie Music Hall"
+        },
+        "intent": "Pull up the description page of Carnegie Music Hall on Map",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "program_html"
+            ],
+            "reference_answers": null,
+            "reference_url": null,
+            "program_html": [
+                {
+                    "url": "last",
+                    "locator": "document.querySelector('[id=\"sidebar_content\"').outerText",
+                    "required_contents": {
+                        "must_include": [
+                            "Carnegie Music Hall"
+                        ]
+                    }
+                }
+            ]
+        },
+        "intent_template_id": 52
+    },
+    {
+        "sites": [
+            "shopping"
+        ],
+        "task_id": 387,
+        "require_login": true,
+        "storage_state": "./.auth/shopping_state.json",
+        "start_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:7770",
+        "geolocation": null,
+        "intent_template": "Who gave {{stars}} for phone cases from EYZUTAK",
+        "instantiation_dict": {
+            "stars": "4 or 5 stars"
+        },
+        "intent": "Who gave 4 or 5 stars for phone cases from EYZUTAK",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "string_match"
+            ],
+            "reference_answers": {
+                "must_include": [
+                    "MH",
+                    "Misba009",
+                    "Amanda",
+                    "Amazon Customer",
+                    "Cally",
+                    "Bethany Robertson"
+                ]
+            },
+            "reference_url": "",
+            "program_html": [],
+            "string_note": "",
+            "reference_answer_raw_annotation": "MH, Misba009, Amanda, Amazon Customer, Cally, Bethany Robertson, Bethany Robertson"
+        },
+        "intent_template_id": 1356
+    },
+    {
+        "sites": [
+            "shopping"
+        ],
+        "task_id": 511,
+        "require_login": true,
+        "storage_state": "./.auth/shopping_state.json",
+        "start_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:7770",
+        "geolocation": null,
+        "intent_template": "Add a {{product}} to my wish list.",
+        "instantiation_dict": {
+            "product": "laundry detergent"
+        },
+        "intent": "Add a laundry detergent to my wish list.",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "program_html"
+            ],
+            "reference_answers": null,
+            "reference_url": "",
+            "program_html": [
+                {
+                    "url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:7770/wishlist/",
+                    "locator": "document.querySelector('.products-grid.wishlist').outerText",
+                    "required_contents": {
+                        "must_include": [
+                            "laundry",
+                            "detergent"
+                        ]
+                    }
+                }
+            ]
+        },
+        "intent_template_id": 189
+    },
+    {
+        "sites": [
+            "shopping"
+        ],
+        "task_id": 585,
+        "require_login": true,
+        "storage_state": "./.auth/shopping_state.json",
+        "start_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:7770",
+        "geolocation": null,
+        "intent_template": "Rate my recent purchase of {{product}} with {{num_star}} stars, using my nickname {{nickname}}?",
+        "instantiation_dict": {
+            "product": "floor lamp",
+            "num_star": 5,
+            "nickname": "Emma Lopez"
+        },
+        "intent": "Rate my recent purchase of floor lamp with 5 stars, using my nickname Emma Lopez?",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "program_html"
+            ],
+            "reference_answers": null,
+            "reference_url": "",
+            "program_html": [
+                {
+                    "url": "last",
+                    "locator": "func:shopping_get_sku_latest_review_rating('B00J8RZL7I')",
+                    "required_contents": {
+                        "must_include": [
+                            "100"
+                        ]
+                    }
+                },
+                {
+                    "url": "last",
+                    "locator": "func:shopping_get_sku_latest_review_author('B00J8RZL7I')",
+                    "required_contents": {
+                        "must_include": [
+                            "Emma Lopez"
+                        ]
+                    }
+                }
+            ]
+        },
+        "intent_template_id": 194
+    },
+    {
+        "sites": [
+            "reddit"
+        ],
+        "task_id": 615,
+        "require_login": true,
+        "storage_state": "./.auth/reddit_state.json",
+        "start_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:9999/f/pics",
+        "geolocation": null,
+        "intent_template": "Re-post the image of {{content}} in this page to {{subreddit}} subreddit and note \"from /f/pics\"",
+        "instantiation_dict": {
+            "content": "Bald Eagle",
+            "subreddit": "earthporn"
+        },
+        "intent": "Re-post the image of Bald Eagle in this page to earthporn subreddit and note \"from /f/pics\"",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "url_match",
+                "program_html"
+            ],
+            "reference_answers": null,
+            "reference_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:9999/f/earthporn",
+            "program_html": [
+                {
+                    "url": "func:reddit_get_post_url('__last_url__')",
+                    "locator": "document.querySelector('.submission__inner').outerText",
+                    "required_contents": {
+                        "must_include": [
+                            "from /f/pics"
+                        ]
+                    }
+                },
+                {
+                    "url": "func:reddit_get_post_url('__last_url__')",
+                    "locator": "[...document.querySelector('.submission__inner').querySelectorAll('[href],[src]')].map(elem => elem.getAttribute('href') || elem.getAttribute('src')).join(' ')",
+                    "required_contents": {
+                        "must_include": [
+                            "b02113033af32feae9ff147dbbe3764039368d67d193885bd04e65c2e6beea9c.jpg"
+                        ]
+                    }
+                }
+            ],
+            "url_note": "GOLD in PRED"
+        },
+        "intent_template_id": 11
+    },
+    {
+        "sites": [
+            "reddit"
+        ],
+        "task_id": 625,
+        "require_login": true,
+        "storage_state": "./.auth/reddit_state.json",
+        "start_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:9999",
+        "geolocation": null,
+        "intent_template": "Create a discussion post about \"{{topic}}\" in a relevant subreddit and ask users for their opinions with the simple prompt, \"your opinion\"",
+        "instantiation_dict": {
+            "topic": "the effectiveness of online learning"
+        },
+        "intent": "Create a discussion post about \"the effectiveness of online learning\" in a relevant subreddit and ask users for their opinions with the simple prompt, \"your opinion\"",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "url_match",
+                "program_html"
+            ],
+            "reference_answers": null,
+            "reference_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:9999/f/machinelearning |OR| http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:9999/f/deeplearning",
+            "program_html": [
+                {
+                    "url": "func:reddit_get_post_url('__last_url__')",
+                    "locator": "document.querySelector('.submission__inner').outerText",
+                    "required_contents": {
+                        "must_include": [
+                            "your opinion",
+                            "the effectiveness of online learning"
+                        ]
+                    }
+                }
+            ],
+            "url_note": "GOLD in PRED"
+        },
+        "intent_template_id": 13
+    },
+    {
+        "sites": [
+            "reddit"
+        ],
+        "task_id": 650,
+        "require_login": true,
+        "storage_state": "./.auth/reddit_state.json",
+        "start_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:9999/f/books/59421/friendly-reminder-bookshop-org-exists",
+        "geolocation": null,
+        "intent_template": "Reply to {{position_description}} with my comment \"{{content_description}}\"",
+        "instantiation_dict": {
+            "position_description": "the post",
+            "content_description": "I am a big fan of the bookorg"
+        },
+        "intent": "Reply to the post with my comment \"I am a big fan of the bookorg\"",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "url_match",
+                "program_html"
+            ],
+            "reference_answers": null,
+            "reference_url": "http://ec2-3-23-128-184.us-east-2.compute.amazonaws.com:9999/f/books/59421/friendly-reminder-bookshop-org-exists",
+            "program_html": [
+                {
+                    "url": "last",
+                    "locator": "document.querySelector('.comment__body').outerText",
+                    "required_contents": {
+                        "exact_match": "I am a big fan of the bookorg"
+                    }
+                }
+            ],
+            "url_note": "GOLD in PRED"
+        },
+        "intent_template_id": 23
+    }
+]

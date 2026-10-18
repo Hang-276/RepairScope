@@ -1,0 +1,8 @@
+Generate instantiation in a json format that can fill the following template. You have to generate the new instance using JSON with exactly same format. 
+
+Template:
+{template}
+Example instantiation:
+{example_instantiation}
+
+New instantiation:

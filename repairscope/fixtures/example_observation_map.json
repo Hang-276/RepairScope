@@ -1,0 +1,19 @@
+{
+  "observations": [
+    {
+      "api": "amazon.show_product",
+      "path": "",
+      "entity": "amazon.products",
+      "id_field": "product_id",
+      "id_argument": "product_id",
+      "key_template": "amazon.products[{id}].{field}",
+      "fields": {
+        "id": {"kind": "reference", "source": "product_id"},
+        "price": {"kind": "number", "scale": 100},
+        "title": {"kind": "text"}
+      }
+    }
+  ],
+  "execution_verified": false,
+  "note": "Public show_product API name is verified in upstream tests/package/test_appworld.py. Response fields/table alignment must be filled from installed public API schemas and offline train audit; never infer hidden values into model state."
+}
